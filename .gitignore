@@ -56,4 +56,6 @@ old.*
 
 # Dependencies
 node_modules/
-.next/
+.next/credentials.json
+*.py
+.env*
