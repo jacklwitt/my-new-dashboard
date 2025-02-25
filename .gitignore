@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Sensitive credentials
+my-chatbot-project-202501-e2f7f2b98e23.json
