@@ -42,3 +42,18 @@ next-env.d.ts
 
 # Sensitive credentials
 my-chatbot-project-202501-e2f7f2b98e23.json
+
+# Credentials and environment files
+credentials.json
+.env
+.env.local
+.env.development
+.env.production
+
+# Old files
+*.py
+old.*
+
+# Dependencies
+node_modules/
+.next/

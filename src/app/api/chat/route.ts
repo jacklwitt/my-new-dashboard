@@ -191,7 +191,11 @@ async function loadSheetData() {
     }
 
     const auth = new google.auth.GoogleAuth({
-      keyFile: keyFilePath,
+      credentials: {
+        client_email: process.env.GOOGLE_CLIENT_EMAIL,
+        private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+        project_id: process.env.GOOGLE_PROJECT_ID
+      },
       scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
     });
 
@@ -407,14 +411,7 @@ Use bullet points (•) with line breaks between sections.`;
         max_tokens: 500
       });
 
-      // Process the response to ensure line breaks are preserved
-      const formattedAnswer = chatResponse.choices[0].message.content
-        .replace(/(\d\. [A-Za-z]+ [A-Za-z]+)/g, '\n$1\n')  // Add breaks around section headers
-        .replace(/• /g, '\n   • ')  // Ensure each bullet point starts on new line
-        .replace(/\n\n+/g, '\n\n')  // Clean up multiple consecutive line breaks
-        .trim();
-
-      return NextResponse.json({ answer: formattedAnswer });
+      return NextResponse.json({ answer: chatResponse.choices[0].message.content });
     }
 
     console.log('Using general prompt');
