@@ -183,8 +183,7 @@ function calculateAnswer(question: string, data: any[]): string {
 
 async function loadSheetData() {
   try {
-    const keyFilePath = path.join(process.cwd(), 'credentials.json');
-    console.log('Loading credentials from:', keyFilePath);
+    console.log('Loading credentials from:', path.join(process.cwd(), 'credentials.json'));
 
     if (!process.env.SPREADSHEET_ID) {
       throw new Error('SPREADSHEET_ID environment variable is not set');
