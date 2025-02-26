@@ -3,11 +3,7 @@ import OpenAI from 'openai';
 import { google } from 'googleapis';
 import path from 'path';
 import type { ChatRequest, ChatResponse, ApiError } from '@/types/api';
-
-// Initialize OpenAI client
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+import { validateEnv } from '@/utils/env';
 
 function createSystemPrompt(data: any[]): string {
   const totalRows = data.length - 1;
@@ -322,6 +318,14 @@ async function analyzeProductData(data: any[], productName: string) {
 
 export async function POST(request: Request) {
   try {
+    // Validate environment variables first
+    const env = validateEnv();
+    
+    // Initialize OpenAI with validated key
+    const openai = new OpenAI({
+      apiKey: env.OPENAI_API_KEY,
+    });
+
     // Add detailed environment validation logging
     console.log('Environment Validation:', {
       GOOGLE_PROJECT_ID: {
