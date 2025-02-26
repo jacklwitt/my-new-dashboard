@@ -1,16 +1,12 @@
 import { NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { google } from 'googleapis';
-import { sanitizeInput, validateChatInput } from '@/utils/chatUtils';
 import path from 'path';
 
 // Initialize OpenAI client
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
-
-// Initialize global DataFrame equivalent
-let globalData: any = null;
 
 function createSystemPrompt(data: any[]): string {
   const totalRows = data.length - 1;
@@ -192,7 +188,7 @@ async function loadSheetData() {
     const auth = new google.auth.GoogleAuth({
       credentials: {
         client_email: process.env.GOOGLE_CLIENT_EMAIL,
-        private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+        private_key: (process.env.GOOGLE_PRIVATE_KEY || '').split('\\n').join('\n'),
         project_id: process.env.GOOGLE_PROJECT_ID
       },
       scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
@@ -341,23 +337,46 @@ async function analyzeProductData(data: any[], productName: string) {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const { question, conversation } = body;
-    
-    console.log('Request:', {
-      question,
-      conversationLength: conversation?.length
+    // Add CORS headers
+    const headers = {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    };
+
+    // Log environment variables (without sensitive data)
+    console.log('Environment check:', {
+      hasGoogleCreds: !!process.env.GOOGLE_CLIENT_EMAIL && !!process.env.GOOGLE_PRIVATE_KEY,
+      hasSpreadsheetId: !!process.env.SPREADSHEET_ID,
+      hasOpenAIKey: !!process.env.OPENAI_API_KEY
     });
 
-    // Load data first
-    const data = await loadSheetData();
-    console.log('Data loaded:', {
-      totalRows: data.length,
-      sampleRow: data[1]
+    // Handle preflight
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { headers });
+    }
+
+    const body = await request.json();
+    console.log('Request received:', { 
+      questionLength: body.question?.length,
+      hasConversation: !!body.conversation
     });
+
+    // Load data with error handling
+    let data;
+    try {
+      data = await loadSheetData();
+      console.log('Data loaded successfully:', {
+        rowCount: data?.length,
+        hasHeaders: !!data?.[0]
+      });
+    } catch (e) {
+      console.error('Sheet data loading failed:', e);
+      throw e;
+    }
 
     // If it's about Protein Acai Bowl, analyze the data
-    if (question.toLowerCase().includes('protein acai bowl')) {
+    if (body.question.toLowerCase().includes('protein acai bowl')) {
       console.log('Analyzing Protein Acai Bowl data');
       const analysis = await analyzeProductData(data, 'Protein Acai Bowl');
       
@@ -403,14 +422,15 @@ Use bullet points (•) with line breaks between sections.`;
           },
           { 
             role: 'user', 
-            content: question 
+            content: body.question 
           }
         ],
         temperature: 0.7,
         max_tokens: 500
       });
 
-      return NextResponse.json({ answer: chatResponse.choices[0].message.content });
+      const responseContent = chatResponse.choices[0].message?.content || '';
+      return NextResponse.json({ answer: responseContent }, { headers });
     }
 
     console.log('Using general prompt');
@@ -428,16 +448,31 @@ Use bullet points (•) with line breaks between sections.`;
 • Keep each point concise and clear
 • Use data to support recommendations`
         },
-        { role: 'user', content: question }
+        { role: 'user', content: body.question }
       ],
       temperature: 0.7,
       max_tokens: 500
     });
 
     const responseContent = chatResponse.choices[0].message?.content || '';
-    return NextResponse.json({ answer: responseContent });
+    return NextResponse.json({ answer: responseContent }, { headers });
   } catch (error) {
-    console.error('Error in chat route:', error);
-    return NextResponse.json({ error: 'Failed to process request' }, { status: 500 });
+    // Detailed error logging
+    console.error('API Error:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+      cause: error.cause
+    });
+
+    return NextResponse.json({ 
+      error: 'Failed to process request',
+      details: error.message 
+    }, { 
+      status: 500,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+      }
+    });
   }
 } 

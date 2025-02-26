@@ -98,28 +98,6 @@ function calculateAnswer(question: string, data: any[], previousQuestion?: strin
   return 'Cannot calculate from available data';
 }
 
-function monthlyBreakdown(rows: any[], months: Array<{month: number, year: number}>, context: string): string {
-  // Get product filter from context
-  let productFilter: (row: any[]) => boolean = () => true;
-  if (context.includes('protein acai bowl')) {
-    productFilter = (row) => row[4]?.toLowerCase().includes('protein acai bowl');
-  }
-
-  const results = months.map(({ month, year }) => {
-    const monthFilter = (date: Date) => date.getMonth() === month && date.getFullYear() === year;
-    const filteredRows = rows.filter(row => 
-      monthFilter(new Date(row[1])) && 
-      productFilter(row)
-    );
-    
-    const total = filteredRows.reduce((sum, row) => sum + (parseFloat(row[8]) || 0), 0);
-    const monthName = new Date(year, month).toLocaleString('default', { month: 'long' });
-    return `${monthName} 2024: $${total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  });
-  
-  return results.join('\n');
-}
-
 export async function POST(request: Request) {
   try {
     const body = await request.json();

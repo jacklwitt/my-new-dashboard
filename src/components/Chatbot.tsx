@@ -1,7 +1,6 @@
 "use client";
 import React from 'react';
 import type { FormEvent } from 'react';
-import { sanitizeInput } from '@/utils/chatUtils';
 
 type Message = {
   role: 'user' | 'assistant' | 'system';
@@ -45,7 +44,7 @@ function isCalculationQuery(question: string, previousQuestion?: string): boolea
          !complexQuestions.some(phrase => questionLower.includes(phrase));
 }
 
-export function Chatbot() {
+export function Chatbot({ previousQuestion: _previousQuestion }: ChatbotProps) {
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [input, setInput] = React.useState('');
   const [isLoading, setIsLoading] = React.useState(false);

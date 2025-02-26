@@ -58,11 +58,11 @@ async function analyzeProductPromotions(data: any[], productName: string): Promi
   // Find best performing promotion
   let bestPromo = '';
   let bestPromoImpact = 0;
-  let maxSalesGrowth = 0;
+  const maxSalesGrowth = 0;
   let peakMonthlySales = 0;
   let bestTimeSlot = '';
   let bestCustomerType = '';
-  let bestMarketingChannel = { channel: '', conversion: 0 };
+  const bestMarketingChannel = { channel: '', conversion: 0 };
 
   monthlyStats.forEach((stats, month) => {
     // Track peak sales
