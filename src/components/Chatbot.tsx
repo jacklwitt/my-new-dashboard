@@ -54,29 +54,52 @@ export function Chatbot({ previousQuestion: _prevQuestion }: ChatbotProps) {
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [input, setInput] = React.useState('');
   const [isLoading, setIsLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
-  // Test connection on component mount
+  // Add error handling to connection test
   React.useEffect(() => {
     async function testConnection() {
       try {
+        setError(null);
         const response = await fetch('/api/chat', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             question: 'test connection',
             conversation: [],
           }),
         });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
         const data = await response.json();
-        console.log('Connection test result:', data);
+        if (data.error) {
+          throw new Error(data.error);
+        }
       } catch (error) {
         console.error('Connection test failed:', error);
+        setError('Failed to connect to chat service');
       }
     }
     testConnection();
   }, []);
+
+  // Show error state
+  if (error) {
+    return (
+      <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+        <p className="text-red-600">{error}</p>
+        <button 
+          onClick={() => setError(null)}
+          className="mt-2 px-3 py-1 bg-red-100 text-red-800 rounded hover:bg-red-200"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();

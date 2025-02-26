@@ -28,15 +28,16 @@ interface DiscountData extends AggregatedData {
   averageDiscount: number;
 }
 
-interface Recommendation {
+// Add shared type definitions
+type Recommendation = {
   type: 'store' | 'product' | 'discount';
   action: string;
   target: string;
   metric: string;
   value: string;
   benchmark?: string;
-  impact: string;
-}
+  impact?: string;
+};
 
 // Add helper function to calculate growth
 function calculateGrowth(monthlyData: Map<string, number>): {
@@ -364,12 +365,15 @@ export async function GET() {
     });
 
     console.log('Generated recommendations:', recommendations.length);
-    return NextResponse.json({ recommendations });
+
+    // Add response type
+    const response: { recommendations: Recommendation[] } = {
+      recommendations: recommendations
+    };
+
+    return NextResponse.json(response);
   } catch (error) {
-    console.error('Error in recommendations:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch data from Google Sheets' },
-      { status: 500 }
-    );
+    console.error('Error:', error);
+    return NextResponse.json({ error: 'Failed to generate recommendations' }, { status: 500 });
   }
 }

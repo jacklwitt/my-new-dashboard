@@ -1,4 +1,6 @@
 import Image from "next/image";
+import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { DashboardWidget } from '@/components/DashboardWidget';
 
 export default function Home() {
   return (

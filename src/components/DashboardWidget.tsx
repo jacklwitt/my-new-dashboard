@@ -11,10 +11,10 @@ type Recommendation = {
   impact?: string;
 };
 
-interface RecommendationState {
+type RecommendationState = {
   resolved: boolean;
   chatOpen: boolean;
-}
+};
 
 interface RecommendationDialogProps {
   recommendation: Recommendation;
@@ -67,10 +67,37 @@ export function DashboardWidget() {
     }
   }
 
+  const initializeRecState = (target: string) => {
+    setRecStates(prev => {
+      const newMap = new Map(prev);
+      newMap.set(target, { 
+        resolved: false, 
+        chatOpen: false 
+      });
+      return newMap;
+    });
+  };
+
   const handleResolve = (rec: Recommendation) => {
     setRecStates(prev => {
       const newMap = new Map(prev);
-      newMap.set(rec.target, { ...prev.get(rec.target), resolved: true });
+      const currentState = prev.get(rec.target) || { resolved: false, chatOpen: false };
+      newMap.set(rec.target, { 
+        ...currentState,
+        resolved: true 
+      });
+      return newMap;
+    });
+  };
+
+  const toggleChat = (target: string) => {
+    setRecStates(prev => {
+      const newMap = new Map(prev);
+      const currentState = prev.get(target) || { resolved: false, chatOpen: false };
+      newMap.set(target, {
+        ...currentState,
+        chatOpen: !currentState.chatOpen
+      });
       return newMap;
     });
   };
