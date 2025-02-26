@@ -37,7 +37,16 @@ INSTRUCTIONS:
 `;
 }
 
+// Move OpenAI instance creation to a function to ensure env is validated
+function createOpenAIClient() {
+  const env = validateEnv();
+  return new OpenAI({
+    apiKey: env.OPENAI_API_KEY,
+  });
+}
+
 async function processWithGPT(
+  openaiClient: OpenAI,  // Rename parameter to avoid confusion
   question: string,
   conversation: any[],
   data: any[],
@@ -56,7 +65,7 @@ async function processWithGPT(
     });
   }
 
-  const completion = await openai.chat.completions.create({
+  const completion = await openaiClient.chat.completions.create({  // Use the passed client
     model: 'gpt-4',
     messages: messages as any,
     temperature: 0.2,
@@ -318,14 +327,7 @@ async function analyzeProductData(data: any[], productName: string) {
 
 export async function POST(request: Request) {
   try {
-    // Validate environment variables first
-    const env = validateEnv();
-    
-    // Initialize OpenAI with validated key
-    const openai = new OpenAI({
-      apiKey: env.OPENAI_API_KEY,
-    });
-
+    const openaiClient = createOpenAIClient();  // Create client once
     // Add detailed environment validation logging
     console.log('Environment Validation:', {
       GOOGLE_PROJECT_ID: {
@@ -454,49 +456,14 @@ Use bullet points (•) with line breaks between sections.`;
 
       console.log('Using product-specific prompt');
 
-      const chatResponse = await openai.chat.completions.create({
-        model: 'gpt-4',
-        messages: [
-          { 
-            role: 'system', 
-            content: systemPrompt 
-          },
-          { 
-            role: 'user', 
-            content: body.question 
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 500
-      });
-
-      const responseContent = chatResponse.choices[0].message?.content || '';
-      return NextResponse.json({ answer: responseContent }, { headers });
+      const chatResponse = await processWithGPT(openaiClient, systemPrompt, [], data);  // Pass client
+      return NextResponse.json({ answer: chatResponse }, { headers });
     }
 
     console.log('Using general prompt');
     // For other questions, still try to use data
-    const chatResponse = await openai.chat.completions.create({
-      model: 'gpt-4',
-      messages: [
-        {
-          role: 'system',
-          content: `You are a retail analytics expert. Always format responses with bullet points for readability:
-
-• Use bullet points (•) for each main point
-• Include specific numbers when available
-• Group related points together
-• Keep each point concise and clear
-• Use data to support recommendations`
-        },
-        { role: 'user', content: body.question }
-      ],
-      temperature: 0.7,
-      max_tokens: 500
-    });
-
-    const responseContent = chatResponse.choices[0].message?.content || '';
-    return NextResponse.json({ answer: responseContent }, { headers });
+    const chatResponse = await processWithGPT(openaiClient, body.question, body.conversation || [], data);  // Pass client
+    return NextResponse.json({ answer: chatResponse }, { headers });
   } catch (error: unknown) {
     const e = error as ApiError;
     console.error('API Error:', {
