@@ -82,7 +82,11 @@ export function Chatbot({ previousQuestion: _prevQuestion }: ChatbotProps) {
     e.preventDefault();
     if (!input.trim()) return;
 
-    const userMessage = { role: 'user', content: input };
+    const userMessage: Message = { 
+      role: 'user', 
+      content: input 
+    };
+    
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
@@ -98,7 +102,7 @@ export function Chatbot({ previousQuestion: _prevQuestion }: ChatbotProps) {
         },
         body: JSON.stringify({
           question: input,
-          conversation: messages // Only needed for chat endpoint
+          conversation: messages
         }),
       });
 
@@ -108,14 +112,19 @@ export function Chatbot({ previousQuestion: _prevQuestion }: ChatbotProps) {
         throw new Error(data.error);
       }
 
-      const assistantMessage = { role: 'assistant', content: data.answer };
+      const assistantMessage: Message = { 
+        role: 'assistant', 
+        content: data.answer 
+      };
+      
       setMessages(prev => [...prev, assistantMessage]);
     } catch (error) {
       console.error('Error:', error);
-      setMessages(prev => [...prev, { 
+      const errorMessage: Message = { 
         role: 'assistant', 
         content: error instanceof Error ? error.message : 'Sorry, there was an error processing your request.' 
-      }]);
+      };
+      setMessages(prev => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
     }
