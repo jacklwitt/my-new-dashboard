@@ -319,6 +319,14 @@ async function analyzeProductData(data: any[], productName: string) {
   };
 }
 
+// Add error type
+type ApiError = {
+  name?: string;
+  message?: string;
+  stack?: string;
+  cause?: unknown;
+};
+
 export async function POST(request: Request) {
   try {
     // Add detailed environment validation logging
@@ -364,7 +372,8 @@ export async function POST(request: Request) {
         authCreated: !!auth,
         credentialsValid: !!(auth as any)?.credentials,
       });
-    } catch (e) {
+    } catch (error: unknown) {
+      const e = error as ApiError;
       console.error('Google Auth Error:', {
         name: e.name,
         message: e.message,
@@ -491,18 +500,19 @@ Use bullet points (•) with line breaks between sections.`;
 
     const responseContent = chatResponse.choices[0].message?.content || '';
     return NextResponse.json({ answer: responseContent }, { headers });
-  } catch (error) {
+  } catch (error: unknown) {
+    const e = error as ApiError;
     // Detailed error logging
     console.error('API Error:', {
-      name: error.name,
-      message: error.message,
-      stack: error.stack,
-      cause: error.cause
+      name: e.name,
+      message: e.message,
+      stack: e.stack,
+      cause: e.cause
     });
 
     return NextResponse.json({ 
       error: 'Failed to process request',
-      details: error.message 
+      details: e.message || 'Unknown error'
     }, { 
       status: 500,
       headers: {
