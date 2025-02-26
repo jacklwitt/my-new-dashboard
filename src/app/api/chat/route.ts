@@ -40,22 +40,6 @@ INSTRUCTIONS:
 `;
 }
 
-function isDataCalculationQuery(question: string): boolean {
-  const calculationKeywords = [
-    'total sales',
-    'revenue',
-    'sales',
-    'average',
-    'sum',
-    'count',
-    'how many',
-    'how much'
-  ];
-  
-  const questionLower = question.toLowerCase();
-  return calculationKeywords.some(keyword => questionLower.includes(keyword));
-}
-
 async function processWithGPT(
   question: string,
   conversation: any[],
@@ -286,7 +270,7 @@ async function analyzeProductData(data: any[], productName: string) {
   let bestCustomerType = '';
   let recentTrend = 0;
 
-  Object.entries(monthlyData).forEach(([month, stats]: [string, any]) => {
+  Object.entries(monthlyData).forEach(([_month, stats]: [string, any]) => {
     // Track peak sales
     peakSales = Math.max(peakSales, stats.sales);
 

@@ -7,6 +7,11 @@ type Message = {
   content: string;
 };
 
+// Add type for props
+type ChatbotProps = {
+  previousQuestion?: string;
+};
+
 function isCalculationQuery(question: string, previousQuestion?: string): boolean {
   const calculationKeywords = [
     'total sales',
@@ -44,7 +49,8 @@ function isCalculationQuery(question: string, previousQuestion?: string): boolea
          !complexQuestions.some(phrase => questionLower.includes(phrase));
 }
 
-export function Chatbot({ previousQuestion: _previousQuestion }: ChatbotProps) {
+// Use underscore to indicate intentional non-use
+export function Chatbot({ previousQuestion: _prevQuestion }: ChatbotProps) {
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [input, setInput] = React.useState('');
   const [isLoading, setIsLoading] = React.useState(false);
