@@ -2,10 +2,16 @@ import { NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import path from 'path';
 import { google } from 'googleapis';
+import type { ApiError } from '@/types/api';
+import { validateEnv } from '@/utils/env';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Move OpenAI instance creation to a function to ensure env is validated
+function createOpenAIClient() {
+  const env = validateEnv();
+  return new OpenAI({
+    apiKey: env.OPENAI_API_KEY,
+  });
+}
 
 async function analyzeProductPromotions(data: any[], productName: string): Promise<{
   bestPromo: string;
@@ -109,6 +115,7 @@ async function analyzeProductPromotions(data: any[], productName: string): Promi
 
 export async function POST(request: Request) {
   try {
+    const openaiClient = createOpenAIClient();
     const body = await request.json();
     const { recommendation } = body;
 
@@ -154,7 +161,7 @@ Based on historical data:
 
 Keep it data-driven and concise.`;
 
-    const chatResponse = await openai.chat.completions.create({
+    const chatResponse = await openaiClient.chat.completions.create({
       model: 'gpt-4',
       messages: [
         { role: 'system', content: systemPrompt },
@@ -165,8 +172,19 @@ Keep it data-driven and concise.`;
     });
 
     return NextResponse.json({ answer: chatResponse.choices[0].message.content });
-  } catch (error) {
-    console.error('Error:', error);
-    return NextResponse.json({ error: 'Failed to process request' }, { status: 500 });
+  } catch (error: unknown) {
+    const e = error as ApiError;
+    console.error('API Error:', {
+      name: e.name,
+      message: e.message,
+      stack: e.stack,
+      cause: e.cause
+    });
+
+    return NextResponse.json({ 
+      error: e.message || 'Failed to process request' 
+    }, { 
+      status: 500 
+    });
   }
 } 
