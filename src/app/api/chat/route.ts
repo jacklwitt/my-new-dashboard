@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { google } from 'googleapis';
 import path from 'path';
+import type { ChatRequest, ChatResponse, ApiError } from '@/types/api';
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -319,14 +320,6 @@ async function analyzeProductData(data: any[], productName: string) {
   };
 }
 
-// Add error type
-type ApiError = {
-  name?: string;
-  message?: string;
-  stack?: string;
-  cause?: unknown;
-};
-
 export async function POST(request: Request) {
   try {
     // Add detailed environment validation logging
@@ -400,7 +393,7 @@ export async function POST(request: Request) {
       return new Response(null, { headers });
     }
 
-    const body = await request.json();
+    const body = (await request.json()) as ChatRequest;
     console.log('Request received:', { 
       questionLength: body.question?.length,
       hasConversation: !!body.conversation
@@ -502,7 +495,6 @@ Use bullet points (•) with line breaks between sections.`;
     return NextResponse.json({ answer: responseContent }, { headers });
   } catch (error: unknown) {
     const e = error as ApiError;
-    // Detailed error logging
     console.error('API Error:', {
       name: e.name,
       message: e.message,
@@ -510,10 +502,11 @@ Use bullet points (•) with line breaks between sections.`;
       cause: e.cause
     });
 
-    return NextResponse.json({ 
-      error: 'Failed to process request',
-      details: e.message || 'Unknown error'
-    }, { 
+    const response: ChatResponse = {
+      error: e.message || 'Failed to process request'
+    };
+
+    return NextResponse.json(response, { 
       status: 500,
       headers: {
         'Access-Control-Allow-Origin': '*',
