@@ -321,6 +321,57 @@ async function analyzeProductData(data: any[], productName: string) {
 
 export async function POST(request: Request) {
   try {
+    // Add detailed environment validation logging
+    console.log('Environment Validation:', {
+      GOOGLE_PROJECT_ID: {
+        exists: !!process.env.GOOGLE_PROJECT_ID,
+        length: process.env.GOOGLE_PROJECT_ID?.length
+      },
+      GOOGLE_CLIENT_EMAIL: {
+        exists: !!process.env.GOOGLE_CLIENT_EMAIL,
+        length: process.env.GOOGLE_CLIENT_EMAIL?.length,
+        isEmail: process.env.GOOGLE_CLIENT_EMAIL?.includes('@')
+      },
+      GOOGLE_PRIVATE_KEY: {
+        exists: !!process.env.GOOGLE_PRIVATE_KEY,
+        length: process.env.GOOGLE_PRIVATE_KEY?.length,
+        hasHeader: process.env.GOOGLE_PRIVATE_KEY?.includes('BEGIN PRIVATE KEY'),
+        hasFooter: process.env.GOOGLE_PRIVATE_KEY?.includes('END PRIVATE KEY')
+      },
+      SPREADSHEET_ID: {
+        exists: !!process.env.SPREADSHEET_ID,
+        length: process.env.SPREADSHEET_ID?.length
+      },
+      OPENAI_API_KEY: {
+        exists: !!process.env.OPENAI_API_KEY,
+        length: process.env.OPENAI_API_KEY?.length,
+        prefix: process.env.OPENAI_API_KEY?.substring(0, 7)
+      }
+    });
+
+    // Test Google auth specifically
+    try {
+      const auth = new google.auth.GoogleAuth({
+        credentials: {
+          client_email: process.env.GOOGLE_CLIENT_EMAIL,
+          private_key: (process.env.GOOGLE_PRIVATE_KEY || '').split('\\n').join('\n'),
+          project_id: process.env.GOOGLE_PROJECT_ID
+        },
+        scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+      });
+      
+      console.log('Google Auth Test:', {
+        authCreated: !!auth,
+        credentialsValid: !!(auth as any)?.credentials,
+      });
+    } catch (e) {
+      console.error('Google Auth Error:', {
+        name: e.name,
+        message: e.message,
+        stack: e.stack
+      });
+    }
+
     // Add CORS headers
     const headers = {
       'Access-Control-Allow-Origin': '*',
