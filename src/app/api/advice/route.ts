@@ -209,20 +209,25 @@ Keep recommendations specific, data-driven, and actionable within 30 days.`;
 
       return NextResponse.json({ answer });
 
-    } catch (googleError) {
-      console.error('Google Auth Error:', {
-        name: googleError.name,
-        message: googleError.message,
-        stack: googleError.stack?.split('\n')[0]
-      });
-      throw googleError;
+    } catch (error: unknown) {
+      // Type guard for Error objects
+      if (error instanceof Error) {
+        console.error('Google Auth Error:', {
+          name: error.name,
+          message: error.message,
+          stack: error.stack?.split('\n')[0]
+        });
+      } else {
+        console.error('Unknown Google Auth Error:', error);
+      }
+      throw error; // Re-throw to be caught by outer catch
     }
 
   } catch (error: unknown) {
     console.error('Advice API Error:', {
-      name: error.name,
-      message: error.message,
-      stack: error.stack?.split('\n')[0],
+      name: error instanceof Error ? error.name : 'Unknown',
+      message: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack?.split('\n')[0] : undefined,
       isVercel: process.env.VERCEL === '1'
     });
     const message = error instanceof Error ? error.message : 'Failed to generate advice';
