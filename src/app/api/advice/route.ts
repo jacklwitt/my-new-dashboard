@@ -3,6 +3,7 @@ import OpenAI from 'openai';
 import { google } from 'googleapis';
 import type { ApiError } from '@/types/api';
 import { validateEnv } from '@/utils/env';
+import type { ChatCompletion } from 'openai/resources';
 
 async function analyzeProductData(data: any[], productName: string) {
   const rows = data.slice(1);
@@ -99,11 +100,11 @@ async function getCompletion(
   model: 'gpt-4' | 'gpt-3.5-turbo',
   systemPrompt: string,
   targetProduct: string
-) {
+): Promise<ChatCompletion> {
   console.log(`Attempting with model: ${model}`);
-  const timeoutDuration = model === 'gpt-4' ? 20000 : 45000; // 20s for GPT-4, 45s for GPT-3.5
+  const timeoutDuration = model === 'gpt-4' ? 20000 : 45000;
   
-  const timeoutPromise = new Promise((_, reject) => {
+  const timeoutPromise = new Promise<never>((_, reject) => {
     setTimeout(() => {
       reject(new Error(`${model} API call timed out after ${timeoutDuration/1000}s`));
     }, timeoutDuration);
@@ -219,7 +220,7 @@ Keep recommendations specific, data-driven, and actionable within 30 days.`;
         timeout: 30000,
       });
 
-      let completion;
+      let completion: ChatCompletion;
       try {
         console.log('Attempting GPT-4...');
         completion = await getCompletion(openai, 'gpt-4', systemPrompt, body.recommendation.target);
