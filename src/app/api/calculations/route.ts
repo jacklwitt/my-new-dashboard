@@ -8,7 +8,7 @@ function calculateAnswer(question: string, data: any[], conversation?: any[]): s
   const questionLower = question.toLowerCase();
   
   // Get the previous question from conversation if it exists
-  const previousQuestion = conversation?.length > 0 
+  const previousQuestion = conversation && conversation.length > 0 
     ? conversation[conversation.length - 1].content 
     : '';
   const previousLower = previousQuestion?.toLowerCase() || '';
