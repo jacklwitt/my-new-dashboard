@@ -184,10 +184,25 @@ Keep recommendations specific, data-driven, and actionable within 30 days.`;
       console.log('Creating OpenAI client...');
       const openai = new OpenAI({
         apiKey: env.OPENAI_API_KEY,
+        timeout: 30000, // 30 second timeout
       });
 
-      console.log('Sending prompt to OpenAI...');
-      const completion = await openai.chat.completions.create({
+      console.log('Sending prompt to OpenAI...', {
+        model: 'gpt-4',
+        messageCount: 2,
+        promptLength: systemPrompt.length,
+        timestamp: new Date().toISOString()
+      });
+
+      // Wrap OpenAI call in a timeout promise
+      const timeoutDuration = 45000; // 45 seconds
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => {
+          reject(new Error('OpenAI API call timed out after 45 seconds'));
+        }, timeoutDuration);
+      });
+
+      const completionPromise = openai.chat.completions.create({
         model: 'gpt-4',
         messages: [
           { role: 'system', content: systemPrompt },
@@ -200,7 +215,19 @@ Keep recommendations specific, data-driven, and actionable within 30 days.`;
         max_tokens: 1000,
       });
 
-      console.log('OpenAI response received');
+      // Race between timeout and API call
+      const completion = await Promise.race([
+        completionPromise,
+        timeoutPromise
+      ]) as OpenAI.Chat.ChatCompletion;
+
+      console.log('OpenAI response received:', {
+        status: 'success',
+        timestamp: new Date().toISOString(),
+        hasContent: !!completion.choices[0].message.content,
+        contentLength: completion.choices[0].message.content?.length
+      });
+
       const answer = completion.choices[0].message.content;
       
       if (!answer) {
@@ -210,17 +237,18 @@ Keep recommendations specific, data-driven, and actionable within 30 days.`;
       return NextResponse.json({ answer });
 
     } catch (error: unknown) {
-      // Type guard for Error objects
       if (error instanceof Error) {
-        console.error('Google Auth Error:', {
+        console.error('OpenAI or Google Error:', {
           name: error.name,
           message: error.message,
-          stack: error.stack?.split('\n')[0]
+          stack: error.stack?.split('\n')[0],
+          timestamp: new Date().toISOString(),
+          isTimeout: error.message.includes('timed out')
         });
       } else {
-        console.error('Unknown Google Auth Error:', error);
+        console.error('Unknown Error:', error);
       }
-      throw error; // Re-throw to be caught by outer catch
+      throw error;
     }
 
   } catch (error: unknown) {
