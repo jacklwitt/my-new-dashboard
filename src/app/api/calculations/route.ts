@@ -1,20 +1,64 @@
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
-import path from 'path';
+import { validateEnv } from '@/utils/env';
+import type { ApiError } from '@/types/api';
 
-function calculateAnswer(question: string, data: any[], previousQuestion?: string): string {
+function calculateAnswer(question: string, data: any[], conversation?: any[]): string {
   const rows = data.slice(1);
   const questionLower = question.toLowerCase();
+  
+  // Get the previous question from conversation if it exists
+  const previousQuestion = conversation?.length > 0 
+    ? conversation[conversation.length - 1].content 
+    : '';
   const previousLower = previousQuestion?.toLowerCase() || '';
   
+  // Extract unique product names from column E (index 4)
+  const allProducts = new Set(
+    rows.map(row => row[4])
+      .filter(Boolean) // Remove null/undefined values
+  );
+
+  // Find the product name from the question by matching against actual products
+  let matchedProduct = '';
+  const questionWords = questionLower.split(' ');
+  
+  // Try to find the longest matching product name
+  for (const product of allProducts) {
+    const productLower = product.toLowerCase();
+    // If the product name is found as a whole in the question
+    if (questionLower.includes(productLower)) {
+      // Update if this is a longer match than previous
+      if (productLower.length > matchedProduct.length) {
+        matchedProduct = product;
+      }
+    }
+  }
+
+  // If no exact match found, try partial matching
+  if (!matchedProduct) {
+    for (const product of allProducts) {
+      const productWords = product.toLowerCase().split(' ');
+      // Check if all words from the product appear in the question
+      if (productWords.every(word => questionWords.includes(word))) {
+        matchedProduct = product;
+        break;
+      }
+    }
+  }
+
   // Handle individual month breakdowns
   if ((questionLower.includes('individually') || 
        questionLower.includes('separately') || 
        questionLower.includes('each') || 
-       questionLower.includes('break')) && 
-      previousLower.includes('protein acai bowl')) {
+       questionLower.includes('break'))) {
+    
+    if (!matchedProduct) {
+      return 'Could not identify the product in your question. Please specify the product name more clearly.';
+    }
 
-    const productRows = rows.filter(row => row[4]?.toLowerCase().includes('protein acai bowl'));
+    // Filter rows for the matched product
+    const productRows = rows.filter(row => row[4] === matchedProduct);
     
     const novSales = productRows
       .filter(row => {
@@ -100,33 +144,39 @@ function calculateAnswer(question: string, data: any[], previousQuestion?: strin
 
 export async function POST(request: Request) {
   try {
+    const env = validateEnv();
     const body = await request.json();
-    const { question, conversation } = body;
-
-    // Get previous question for context
-    const previousQuestion = conversation?.length > 0 
-      ? conversation[conversation.length - 1].content 
-      : '';
-
-    const keyFilePath = path.join(process.cwd(), 'credentials.json');
+    
     const auth = new google.auth.GoogleAuth({
-      keyFile: keyFilePath,
+      credentials: {
+        client_email: env.GOOGLE_CLIENT_EMAIL,
+        private_key: env.GOOGLE_PRIVATE_KEY.split('\\n').join('\n'),
+        project_id: env.GOOGLE_PROJECT_ID
+      },
       scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
     });
 
     const client = await auth.getClient();
     const sheets = google.sheets({ version: 'v4', auth: client as any });
-
+    
     const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.SPREADSHEET_ID,
+      spreadsheetId: env.SPREADSHEET_ID,
       range: 'Sheet1!A1:I10001',
     });
 
-    // Pass both current and previous question for context
-    const answer = calculateAnswer(question, response.data.values || [], previousQuestion);
+    if (!response.data.values) {
+      throw new Error('No data found in spreadsheet');
+    }
+
+    const answer = calculateAnswer(body.question, response.data.values, body.conversation);
     return NextResponse.json({ answer });
-  } catch (error) {
-    console.error('Error:', error);
-    return NextResponse.json({ error: 'Failed to process request' }, { status: 500 });
+
+  } catch (error: unknown) {
+    console.error('Calculation error:', error);
+    return NextResponse.json({ 
+      error: error instanceof Error ? error.message : 'Failed to process calculation'
+    }, { 
+      status: 500 
+    });
   }
 } 

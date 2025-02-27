@@ -1,5 +1,5 @@
 "use client";
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import type { FormEvent } from 'react';
 
 type Message = {
@@ -51,16 +51,14 @@ function isCalculationQuery(question: string, previousQuestion?: string): boolea
 
 // Use underscore to indicate intentional non-use
 export function Chatbot({ previousQuestion: _prevQuestion }: ChatbotProps) {
-  const [messages, setMessages] = React.useState<Message[]>([]);
-  const [input, setInput] = React.useState('');
-  const [isLoading, setIsLoading] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Add error handling to connection test
-  React.useEffect(() => {
+  useEffect(() => {
     async function testConnection() {
       try {
-        setError(null);
         const response = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -69,30 +67,32 @@ export function Chatbot({ previousQuestion: _prevQuestion }: ChatbotProps) {
             conversation: [],
           }),
         });
-        
+
         if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+          const errorData = await response.json().catch(() => ({ 
+            error: 'Server error' 
+          }));
+          throw new Error(errorData.error || `Server error (${response.status})`);
         }
-        
+
         const data = await response.json();
         if (data.error) {
           throw new Error(data.error);
         }
       } catch (error) {
         console.error('Connection test failed:', error);
-        setError('Failed to connect to chat service');
+        throw error;
       }
     }
     testConnection();
   }, []);
 
-  // Show error state
   if (error) {
     return (
       <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
         <p className="text-red-600">{error}</p>
         <button 
-          onClick={() => setError(null)}
+          onClick={() => window.location.reload()}
           className="mt-2 px-3 py-1 bg-red-100 text-red-800 rounded hover:bg-red-200"
         >
           Retry

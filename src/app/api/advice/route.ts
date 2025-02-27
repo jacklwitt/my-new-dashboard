@@ -1,30 +1,10 @@
 import { NextResponse } from 'next/server';
 import OpenAI from 'openai';
-import path from 'path';
 import { google } from 'googleapis';
 import type { ApiError } from '@/types/api';
 import { validateEnv } from '@/utils/env';
 
-// Move OpenAI instance creation to a function to ensure env is validated
-function createOpenAIClient() {
-  const env = validateEnv();
-  return new OpenAI({
-    apiKey: env.OPENAI_API_KEY,
-  });
-}
-
-async function analyzeProductPromotions(data: any[], productName: string): Promise<{
-  bestPromo: string;
-  promoImpact: number;
-  salesGrowth: number;
-  peakSales: number;
-  bestTiming: string;
-  bestCustomers: string;
-  marketingStats: {
-    channel: string;
-    conversion: number;
-  };
-}> {
+async function analyzeProductData(data: any[], productName: string) {
   const rows = data.slice(1);
   const productRows = rows.filter(row => row[4]?.toLowerCase().includes(productName.toLowerCase()));
   
@@ -115,74 +95,110 @@ async function analyzeProductPromotions(data: any[], productName: string): Promi
 
 export async function POST(request: Request) {
   try {
-    const openaiClient = createOpenAIClient();
+    console.log('Processing advice request...');
+    const env = validateEnv();
+    
     const body = await request.json();
-    const { recommendation } = body;
+    console.log('Recommendation data:', {
+      type: body.recommendation?.type,
+      target: body.recommendation?.target,
+      action: body.recommendation?.action,
+      impact: body.recommendation?.impact
+    });
 
-    // Load and analyze data
-    const keyFilePath = path.join(process.cwd(), 'credentials.json');
+    if (!body.recommendation) {
+      throw new Error('No recommendation provided');
+    }
+
+    // Get data from Google Sheets
     const auth = new google.auth.GoogleAuth({
-      keyFile: keyFilePath,
+      credentials: {
+        client_email: env.GOOGLE_CLIENT_EMAIL,
+        private_key: env.GOOGLE_PRIVATE_KEY.split('\\n').join('\n'),
+        project_id: env.GOOGLE_PROJECT_ID
+      },
       scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
     });
 
     const client = await auth.getClient();
     const sheets = google.sheets({ version: 'v4', auth: client as any });
+    
     const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.SPREADSHEET_ID,
+      spreadsheetId: env.SPREADSHEET_ID,
       range: 'Sheet1!A1:I10001',
     });
 
-    const analysis = await analyzeProductPromotions(response.data.values || [], recommendation.target);
+    if (!response.data.values) {
+      throw new Error('No data found in spreadsheet');
+    }
 
-    const systemPrompt = `You are a retail analytics expert. Based on this data analysis:
+    // Analyze the data
+    const analysis = await analyzeProductData(response.data.values, body.recommendation.target);
 
-- Best promotion "${analysis.bestPromo}" drove ${analysis.promoImpact.toFixed(1)}% of sales
-- Peak monthly sales: $${analysis.peakSales.toLocaleString()}
-- Best performance time: ${analysis.bestTiming}
-- Strong performance with ${analysis.bestCustomers} customers
+    // Create enhanced prompt with analysis
+    const systemPrompt = `You are a retail analytics expert. Based on this analysis:
+
+Product: ${body.recommendation.target}
+Current Status: ${body.recommendation.impact}
+Key Metrics:
+• Best promotion "${analysis.bestPromo}" drove ${analysis.promoImpact.toFixed(1)}% of sales
+• Peak monthly sales: $${analysis.peakSales.toLocaleString()}
+• Best performance time: ${analysis.bestTiming}
+• Strong performance with ${analysis.bestCustomers} customers
 
 Provide specific recommendations in this format:
 
-Based on historical data:
-
 1. Promotion Strategy
-   - Include specific promotion details and impact
-   - Recommend similar approach with specific numbers
-   - Set clear targets based on peak performance
+   • Recommend specific promotion approach based on ${analysis.bestPromo}'s success
+   • Set clear targets based on peak sales of $${analysis.peakSales.toLocaleString()}
+   • Suggest pricing or discount strategy
 
 2. Timing & Audience
-   - Best performance timing
-   - Most responsive customer segment
+   • Best timing: ${analysis.bestTiming}
+   • Target customer segments: ${analysis.bestCustomers || 'All segments'}
+   • Customer engagement tactics
 
 3. Marketing Focus
-   - Most effective channel
-   - Specific integration tactics
+   • Specific marketing channels
+   • Key messages to highlight
+   • Integration with current promotions
 
-Keep it data-driven and concise.`;
+Keep recommendations specific, data-driven, and actionable within 30 days.`;
 
-    const chatResponse = await openaiClient.chat.completions.create({
+    const openai = new OpenAI({
+      apiKey: env.OPENAI_API_KEY,
+    });
+
+    console.log('Generated prompt with analysis');
+    const completion = await openai.chat.completions.create({
       model: 'gpt-4',
       messages: [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: `Provide recommendations for ${recommendation.target} to improve current performance.` }
+        { 
+          role: 'user', 
+          content: `Please provide detailed recommendations for ${body.recommendation.target} based on the analysis.` 
+        }
       ],
       temperature: 0.7,
-      max_tokens: 500
+      max_tokens: 1000,
     });
 
-    return NextResponse.json({ answer: chatResponse.choices[0].message.content });
+    console.log('Received GPT response');
+    const answer = completion.choices[0].message.content || 'No advice generated';
+
+    return NextResponse.json({ answer });
+
   } catch (error: unknown) {
     const e = error as ApiError;
-    console.error('API Error:', {
+    console.error('Advice API Error:', {
       name: e.name,
       message: e.message,
-      stack: e.stack,
+      stack: e.stack?.split('\n')[0],
       cause: e.cause
     });
 
     return NextResponse.json({ 
-      error: e.message || 'Failed to process request' 
+      error: e.message || 'Failed to generate advice'
     }, { 
       status: 500 
     });

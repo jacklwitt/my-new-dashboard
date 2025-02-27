@@ -1,5 +1,5 @@
 "use client";
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 
 type Recommendation = {
   type: 'store' | 'product' | 'discount';
@@ -21,31 +21,64 @@ interface RecommendationDialogProps {
   onClose: () => void;
 }
 
+async function fetchRecommendations() {
+  try {
+    const res = await fetch('/api/recommendations');
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({ 
+        error: 'Server error' 
+      }));
+      throw new Error(errorData.error || `Server error (${res.status})`);
+    }
+    const data = await res.json();
+    return data.recommendations || [];
+  } catch (error) {
+    console.error('Failed to fetch recommendations:', error);
+    throw error;
+  }
+}
+
 export function DashboardWidget() {
-  const [recommendations, setRecommendations] = React.useState<Recommendation[]>([]);
-  const [recStates, setRecStates] = React.useState<Map<string, RecommendationState>>(new Map());
-  const [selectedRec, setSelectedRec] = React.useState<Recommendation | null>(null);
-  const [loading, setLoading] = React.useState(true);
+  const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
+  const [recStates, setRecStates] = useState<Map<string, RecommendationState>>(new Map());
+  const [selectedRec, setSelectedRec] = useState<Recommendation | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const SHEETS_URL = "https://docs.google.com/spreadsheets/d/1aRB9-8eXwOhrNbaCrsqluIRPcsruOLp5F4Z3GJv0GS4/edit?gid=0#gid=0";
 
-  React.useEffect(() => {
-    async function fetchRecommendations() {
+  useEffect(() => {
+    async function loadRecommendations() {
       try {
-        const res = await fetch('/api/recommendations');
-        const data = await res.json();
-        if (data.error) {
-          throw new Error(data.error);
-        }
-        setRecommendations(data.recommendations || []);
-      } catch (error) {
-        console.error('Error fetching recommendations:', error);
+        setError(null);
+        const recs = await fetchRecommendations();
+        setRecommendations(recs);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Failed to load recommendations');
       } finally {
         setLoading(false);
       }
     }
-    fetchRecommendations();
+    loadRecommendations();
   }, []);
+
+  if (loading) {
+    return <div>Loading recommendations...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+        <p className="text-red-600">{error}</p>
+        <button 
+          onClick={() => window.location.reload()}
+          className="mt-2 px-3 py-1 bg-red-100 text-red-800 rounded hover:bg-red-200"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   function formatRecommendation(rec: Recommendation): string {
     switch (rec.type) {
@@ -103,6 +136,7 @@ export function DashboardWidget() {
   };
 
   const handleChatAbout = (rec: Recommendation) => {
+    console.log('Opening advice for:', rec);
     setSelectedRec(rec);
   };
 
@@ -122,9 +156,7 @@ export function DashboardWidget() {
             View Data Source
           </a>
         </div>
-        {loading ? (
-          <p className="text-gray-600 dark:text-gray-300">Loading...</p>
-        ) : recommendations.length > 0 ? (
+        {recommendations.length > 0 ? (
           <ul className="space-y-4">
             {recommendations.slice(0, 3).map((rec, idx) => {
               const state = recStates.get(rec.target) || { resolved: false, chatOpen: false };
@@ -173,18 +205,28 @@ export function DashboardWidget() {
 }
 
 function RecommendationDialog({ recommendation, onClose }: RecommendationDialogProps) {
-  const [response, setResponse] = React.useState<string>('');
-  const [loading, setLoading] = React.useState(true);
+  const [response, setResponse] = useState<string>('');
+  const [loading, setLoading] = useState(true);
 
-  React.useEffect(() => {
+  useEffect(() => {
     async function getAdvice() {
       try {
+        console.log('Fetching advice for:', recommendation);
         const res = await fetch('/api/advice', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ recommendation })
         });
+        
+        if (!res.ok) {
+          throw new Error('Failed to fetch advice');
+        }
+        
         const data = await res.json();
+        if (data.error) {
+          throw new Error(data.error);
+        }
+        
         setResponse(data.answer);
       } catch (error) {
         console.error('Error fetching advice:', error);

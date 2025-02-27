@@ -1,4 +1,12 @@
 export function validateEnv() {
+  console.log('Environment check:', {
+    OPENAI_API_KEY: !!process.env.OPENAI_API_KEY,
+    GOOGLE_PROJECT_ID: !!process.env.GOOGLE_PROJECT_ID,
+    GOOGLE_CLIENT_EMAIL: !!process.env.GOOGLE_CLIENT_EMAIL,
+    GOOGLE_PRIVATE_KEY: !!process.env.GOOGLE_PRIVATE_KEY?.length,
+    SPREADSHEET_ID: !!process.env.SPREADSHEET_ID,
+  });
+
   const required = {
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
     GOOGLE_PROJECT_ID: process.env.GOOGLE_PROJECT_ID,

@@ -327,59 +327,6 @@ async function analyzeProductData(data: any[], productName: string) {
 
 export async function POST(request: Request) {
   try {
-    const openaiClient = createOpenAIClient();  // Create client once
-    // Add detailed environment validation logging
-    console.log('Environment Validation:', {
-      GOOGLE_PROJECT_ID: {
-        exists: !!process.env.GOOGLE_PROJECT_ID,
-        length: process.env.GOOGLE_PROJECT_ID?.length
-      },
-      GOOGLE_CLIENT_EMAIL: {
-        exists: !!process.env.GOOGLE_CLIENT_EMAIL,
-        length: process.env.GOOGLE_CLIENT_EMAIL?.length,
-        isEmail: process.env.GOOGLE_CLIENT_EMAIL?.includes('@')
-      },
-      GOOGLE_PRIVATE_KEY: {
-        exists: !!process.env.GOOGLE_PRIVATE_KEY,
-        length: process.env.GOOGLE_PRIVATE_KEY?.length,
-        hasHeader: process.env.GOOGLE_PRIVATE_KEY?.includes('BEGIN PRIVATE KEY'),
-        hasFooter: process.env.GOOGLE_PRIVATE_KEY?.includes('END PRIVATE KEY')
-      },
-      SPREADSHEET_ID: {
-        exists: !!process.env.SPREADSHEET_ID,
-        length: process.env.SPREADSHEET_ID?.length
-      },
-      OPENAI_API_KEY: {
-        exists: !!process.env.OPENAI_API_KEY,
-        length: process.env.OPENAI_API_KEY?.length,
-        prefix: process.env.OPENAI_API_KEY?.substring(0, 7)
-      }
-    });
-
-    // Test Google auth specifically
-    try {
-      const auth = new google.auth.GoogleAuth({
-        credentials: {
-          client_email: process.env.GOOGLE_CLIENT_EMAIL,
-          private_key: (process.env.GOOGLE_PRIVATE_KEY || '').split('\\n').join('\n'),
-          project_id: process.env.GOOGLE_PROJECT_ID
-        },
-        scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-      });
-      
-      console.log('Google Auth Test:', {
-        authCreated: !!auth,
-        credentialsValid: !!(auth as any)?.credentials,
-      });
-    } catch (error: unknown) {
-      const e = error as ApiError;
-      console.error('Google Auth Error:', {
-        name: e.name,
-        message: e.message,
-        stack: e.stack
-      });
-    }
-
     // Add CORS headers
     const headers = {
       'Access-Control-Allow-Origin': '*',
@@ -387,43 +334,68 @@ export async function POST(request: Request) {
       'Access-Control-Allow-Headers': 'Content-Type',
     };
 
-    // Log environment variables (without sensitive data)
-    console.log('Environment check:', {
-      hasGoogleCreds: !!process.env.GOOGLE_CLIENT_EMAIL && !!process.env.GOOGLE_PRIVATE_KEY,
-      hasSpreadsheetId: !!process.env.SPREADSHEET_ID,
-      hasOpenAIKey: !!process.env.OPENAI_API_KEY
-    });
-
     // Handle preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers });
     }
 
-    const body = (await request.json()) as ChatRequest;
-    console.log('Request received:', { 
+    console.log('Validating environment...');
+    const env = validateEnv();
+    console.log('Environment validated');
+
+    const openaiClient = createOpenAIClient();
+
+    const body = await request.json() as ChatRequest;
+    console.log('Request:', {
       questionLength: body.question?.length,
       hasConversation: !!body.conversation
     });
 
-    // Load data with error handling
-    let data;
-    try {
-      data = await loadSheetData();
-      console.log('Data loaded successfully:', {
-        rowCount: data?.length,
-        hasHeaders: !!data?.[0]
-      });
-    } catch (e) {
-      console.error('Sheet data loading failed:', e);
-      throw e;
+    const auth = new google.auth.GoogleAuth({
+      credentials: {
+        client_email: env.GOOGLE_CLIENT_EMAIL,
+        private_key: env.GOOGLE_PRIVATE_KEY.split('\\n').join('\n'),
+        project_id: env.GOOGLE_PROJECT_ID
+      },
+      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+    });
+
+    console.log('Authenticating with Google...');
+    const client = await auth.getClient();
+    
+    console.log('Creating Google Sheets client...');
+    const sheets = google.sheets({ 
+      version: 'v4', 
+      auth: client as any
+    });
+    
+    console.log(`Fetching spreadsheet data...`);
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: env.SPREADSHEET_ID,
+      range: 'Sheet1!A1:I10001',
+    }).catch(error => {
+      console.error('Google Sheets API Error:', error.message);
+      if (error.message.includes('has not been used')) {
+        throw new Error('Google Sheets API is not enabled. Please enable it in the Google Cloud Console.');
+      }
+      if (error.message.includes('not found')) {
+        throw new Error('Spreadsheet not found or service account lacks access');
+      }
+      throw error;
+    });
+
+    if (!response.data.values) {
+      throw new Error('No data found in spreadsheet');
     }
+
+    console.log('Data loaded. Processing response...');
+    const data = response.data.values;
 
     // If it's about Protein Acai Bowl, analyze the data
     if (body.question.toLowerCase().includes('protein acai bowl')) {
       console.log('Analyzing Protein Acai Bowl data');
       const analysis = await analyzeProductData(data, 'Protein Acai Bowl');
-      
-      console.log('Analysis complete:', analysis);
+      console.log('Analysis complete');
       
       const systemPrompt = `You are a retail analytics expert. Here's the current data:
 
@@ -455,29 +427,28 @@ Based on historical data:
 Use bullet points (•) with line breaks between sections.`;
 
       console.log('Using product-specific prompt');
-
-      const chatResponse = await processWithGPT(openaiClient, systemPrompt, [], data);  // Pass client
+      const chatResponse = await processWithGPT(openaiClient, systemPrompt, [], data);
       return NextResponse.json({ answer: chatResponse }, { headers });
     }
 
-    console.log('Using general prompt');
-    // For other questions, still try to use data
-    const chatResponse = await processWithGPT(openaiClient, body.question, body.conversation || [], data);  // Pass client
+    console.log('Processing with GPT...');
+    const chatResponse = await processWithGPT(openaiClient, body.question, body.conversation || [], data);
+    console.log('GPT response received');
+
     return NextResponse.json({ answer: chatResponse }, { headers });
+
   } catch (error: unknown) {
     const e = error as ApiError;
-    console.error('API Error:', {
+    console.error('Chat API Error:', {
       name: e.name,
       message: e.message,
-      stack: e.stack,
+      stack: e.stack?.split('\n')[0],
       cause: e.cause
     });
 
-    const response: ChatResponse = {
+    return NextResponse.json({ 
       error: e.message || 'Failed to process request'
-    };
-
-    return NextResponse.json(response, { 
+    }, { 
       status: 500,
       headers: {
         'Access-Control-Allow-Origin': '*',

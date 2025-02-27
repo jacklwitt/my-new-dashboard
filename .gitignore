@@ -19,7 +19,12 @@
 /build/
 
 # environment variables
-.env*
+.env
+.env.local
+.env.*.local
+.env.development
+.env.test
+.env.production
 !.env.example
 
 # service account keys
@@ -70,3 +75,20 @@ node_modules/
 .env.development.local
 .env.test.local
 .env.production.local
+
+# Environment files
+.env
+.env.local
+.env.*.local
+.env.development
+.env.test
+.env.production
+
+# Keep example file
+!.env.example
+
+# Service account keys and credentials
+*.pem
+credentials.json
+*-service-account.json
+*-e2f7f2b98e23.json
