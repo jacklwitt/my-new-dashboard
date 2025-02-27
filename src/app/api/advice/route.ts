@@ -94,51 +94,65 @@ async function analyzeProductData(data: any[], productName: string) {
 }
 
 export async function POST(request: Request) {
-  console.log('Advice POST handler called');
+  console.log('=== Advice API Starting ===');
   
   try {
     const env = validateEnv();
+    
+    // Check environment setup
+    console.log('Environment validation:', {
+      hasOpenAI: !!env.OPENAI_API_KEY?.length,
+      hasGoogleCreds: !!env.GOOGLE_CLIENT_EMAIL && !!env.GOOGLE_PRIVATE_KEY,
+      privateKeyLength: env.GOOGLE_PRIVATE_KEY?.length,
+      privateKeyStart: env.GOOGLE_PRIVATE_KEY?.substring(0, 50),
+      isVercel: process.env.VERCEL === '1'
+    });
+
     const body = await request.json();
-    console.log('Request body:', {
-      type: body.recommendation?.type,
-      target: body.recommendation?.target,
-      action: body.recommendation?.action,
-      impact: body.recommendation?.impact
+    console.log('Request validation:', {
+      hasRecommendation: !!body.recommendation,
+      recommendationType: body.recommendation?.type,
+      hasTarget: !!body.recommendation?.target
     });
 
     if (!body.recommendation) {
       throw new Error('No recommendation provided');
     }
 
-    // Get data from Google Sheets
-    const auth = new google.auth.GoogleAuth({
-      credentials: {
-        client_email: env.GOOGLE_CLIENT_EMAIL,
-        private_key: env.GOOGLE_PRIVATE_KEY,  // Now handled by validateEnv
-        project_id: env.GOOGLE_PROJECT_ID
-      },
-      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-    });
+    // Test Google Auth
+    try {
+      console.log('Initializing Google Auth...');
+      const auth = new google.auth.GoogleAuth({
+        credentials: {
+          client_email: env.GOOGLE_CLIENT_EMAIL,
+          private_key: env.GOOGLE_PRIVATE_KEY,
+          project_id: env.GOOGLE_PROJECT_ID
+        },
+        scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+      });
 
-    const client = await auth.getClient();
-    const sheets = google.sheets({ version: 'v4', auth: client as any });
-    
-    console.log('Fetching spreadsheet data...');
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: env.SPREADSHEET_ID,
-      range: 'Sheet1!A1:I10001',
-    });
+      console.log('Getting Google client...');
+      const client = await auth.getClient();
+      console.log('Google Auth successful');
 
-    if (!response.data.values) {
-      throw new Error('No data found in spreadsheet');
-    }
+      const sheets = google.sheets({ version: 'v4', auth: client as any });
+      
+      console.log('Fetching spreadsheet data...');
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: env.SPREADSHEET_ID,
+        range: 'Sheet1!A1:I10001',
+      });
 
-    // Analyze the data
-    const analysis = await analyzeProductData(response.data.values, body.recommendation.target);
-    console.log('Data analysis complete:', analysis);
+      if (!response.data.values) {
+        throw new Error('No data found in spreadsheet');
+      }
 
-    // Create enhanced prompt with analysis
-    const systemPrompt = `You are a retail analytics expert. Based on this analysis:
+      // Analyze the data
+      const analysis = await analyzeProductData(response.data.values, body.recommendation.target);
+      console.log('Data analysis complete:', analysis);
+
+      // Create enhanced prompt with analysis
+      const systemPrompt = `You are a retail analytics expert. Based on this analysis:
 
 Product: ${body.recommendation.target}
 Current Status: ${body.recommendation.impact}
@@ -167,36 +181,50 @@ Provide specific recommendations in this format:
 
 Keep recommendations specific, data-driven, and actionable within 30 days.`;
 
-    console.log('Creating OpenAI client...');
-    const openai = new OpenAI({
-      apiKey: env.OPENAI_API_KEY,
-    });
+      console.log('Creating OpenAI client...');
+      const openai = new OpenAI({
+        apiKey: env.OPENAI_API_KEY,
+      });
 
-    console.log('Sending prompt to OpenAI...');
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { 
-          role: 'user', 
-          content: `Please provide detailed recommendations for ${body.recommendation.target} based on the analysis.` 
-        }
-      ],
-      temperature: 0.7,
-      max_tokens: 1000,
-    });
+      console.log('Sending prompt to OpenAI...');
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-4',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { 
+            role: 'user', 
+            content: `Please provide detailed recommendations for ${body.recommendation.target} based on the analysis.` 
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 1000,
+      });
 
-    console.log('OpenAI response received');
-    const answer = completion.choices[0].message.content;
-    
-    if (!answer) {
-      throw new Error('No advice generated');
+      console.log('OpenAI response received');
+      const answer = completion.choices[0].message.content;
+      
+      if (!answer) {
+        throw new Error('No advice generated');
+      }
+
+      return NextResponse.json({ answer });
+
+    } catch (googleError) {
+      console.error('Google Auth Error:', {
+        name: googleError.name,
+        message: googleError.message,
+        stack: googleError.stack?.split('\n')[0]
+      });
+      throw googleError;
     }
 
-    return NextResponse.json({ answer });
-
   } catch (error: unknown) {
-    console.error('Advice API Error:', error);
+    console.error('Advice API Error:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack?.split('\n')[0],
+      isVercel: process.env.VERCEL === '1'
+    });
     const message = error instanceof Error ? error.message : 'Failed to generate advice';
     return NextResponse.json({ error: message }, { status: 500 });
   }
