@@ -7,7 +7,7 @@ export function validateEnv() {
     SPREADSHEET_ID: !!process.env.SPREADSHEET_ID,
   });
 
-  const required = {
+  const requiredEnvs = {
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
     GOOGLE_PROJECT_ID: process.env.GOOGLE_PROJECT_ID,
     GOOGLE_CLIENT_EMAIL: process.env.GOOGLE_CLIENT_EMAIL,
@@ -15,23 +15,25 @@ export function validateEnv() {
     SPREADSHEET_ID: process.env.SPREADSHEET_ID
   };
 
-  const missing = Object.entries(required)
-    .filter(([_, value]) => !value)
-    .map(([key]) => key);
-
-  if (missing.length > 0) {
-    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+  // Validate all required environment variables are present
+  for (const [key, value] of Object.entries(requiredEnvs)) {
+    if (!value) {
+      throw new Error(`Missing required environment variable: ${key}`);
+    }
   }
 
   // Validate email format
-  if (!required.GOOGLE_CLIENT_EMAIL?.includes('@')) {
+  if (!requiredEnvs.GOOGLE_CLIENT_EMAIL?.includes('@')) {
     throw new Error('GOOGLE_CLIENT_EMAIL is not a valid email address');
   }
 
-  // Validate private key format
-  if (!required.GOOGLE_PRIVATE_KEY?.includes('BEGIN PRIVATE KEY')) {
-    throw new Error('GOOGLE_PRIVATE_KEY is not in the correct format');
-  }
+  // Clean up private key - handle both escaped and unescaped versions
+  const privateKey = process.env.GOOGLE_PRIVATE_KEY!
+    .replace(/\\n/g, '\n')
+    .replace(/"([^"]*)"/, '$1');
 
-  return required as Record<keyof typeof required, string>;
+  return {
+    ...requiredEnvs,
+    GOOGLE_PRIVATE_KEY: privateKey
+  };
 } 

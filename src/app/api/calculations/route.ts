@@ -136,7 +136,7 @@ export async function POST(request: Request) {
     const auth = new google.auth.GoogleAuth({
       credentials: {
         client_email: env.GOOGLE_CLIENT_EMAIL,
-        private_key: env.GOOGLE_PRIVATE_KEY.split('\\n').join('\n'),
+        private_key: env.GOOGLE_PRIVATE_KEY,
         project_id: env.GOOGLE_PROJECT_ID
       },
       scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
