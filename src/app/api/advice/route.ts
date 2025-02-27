@@ -94,12 +94,12 @@ async function analyzeProductData(data: any[], productName: string) {
 }
 
 export async function POST(request: Request) {
+  console.log('Advice POST handler called');
+  
   try {
-    console.log('Processing advice request...');
     const env = validateEnv();
-    
     const body = await request.json();
-    console.log('Recommendation data:', {
+    console.log('Request body:', {
       type: body.recommendation?.type,
       target: body.recommendation?.target,
       action: body.recommendation?.action,
@@ -114,7 +114,7 @@ export async function POST(request: Request) {
     const auth = new google.auth.GoogleAuth({
       credentials: {
         client_email: env.GOOGLE_CLIENT_EMAIL,
-        private_key: env.GOOGLE_PRIVATE_KEY.split('\\n').join('\n'),
+        private_key: env.GOOGLE_PRIVATE_KEY,  // Now handled by validateEnv
         project_id: env.GOOGLE_PROJECT_ID
       },
       scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
@@ -123,6 +123,7 @@ export async function POST(request: Request) {
     const client = await auth.getClient();
     const sheets = google.sheets({ version: 'v4', auth: client as any });
     
+    console.log('Fetching spreadsheet data...');
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: env.SPREADSHEET_ID,
       range: 'Sheet1!A1:I10001',
@@ -134,6 +135,7 @@ export async function POST(request: Request) {
 
     // Analyze the data
     const analysis = await analyzeProductData(response.data.values, body.recommendation.target);
+    console.log('Data analysis complete:', analysis);
 
     // Create enhanced prompt with analysis
     const systemPrompt = `You are a retail analytics expert. Based on this analysis:
@@ -165,11 +167,12 @@ Provide specific recommendations in this format:
 
 Keep recommendations specific, data-driven, and actionable within 30 days.`;
 
+    console.log('Creating OpenAI client...');
     const openai = new OpenAI({
       apiKey: env.OPENAI_API_KEY,
     });
 
-    console.log('Generated prompt with analysis');
+    console.log('Sending prompt to OpenAI...');
     const completion = await openai.chat.completions.create({
       model: 'gpt-4',
       messages: [
@@ -183,24 +186,18 @@ Keep recommendations specific, data-driven, and actionable within 30 days.`;
       max_tokens: 1000,
     });
 
-    console.log('Received GPT response');
-    const answer = completion.choices[0].message.content || 'No advice generated';
+    console.log('OpenAI response received');
+    const answer = completion.choices[0].message.content;
+    
+    if (!answer) {
+      throw new Error('No advice generated');
+    }
 
     return NextResponse.json({ answer });
 
   } catch (error: unknown) {
-    const e = error as ApiError;
-    console.error('Advice API Error:', {
-      name: e.name,
-      message: e.message,
-      stack: e.stack?.split('\n')[0],
-      cause: e.cause
-    });
-
-    return NextResponse.json({ 
-      error: e.message || 'Failed to generate advice'
-    }, { 
-      status: 500 
-    });
+    console.error('Advice API Error:', error);
+    const message = error instanceof Error ? error.message : 'Failed to generate advice';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 } 
