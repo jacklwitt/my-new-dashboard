@@ -184,42 +184,56 @@ Keep recommendations specific, data-driven, and actionable within 30 days.`;
       console.log('Creating OpenAI client...');
       const openai = new OpenAI({
         apiKey: env.OPENAI_API_KEY,
-        timeout: 30000, // 30 second timeout
+        timeout: 30000,
       });
 
-      console.log('Sending prompt to OpenAI...', {
-        model: 'gpt-4',
-        messageCount: 2,
-        promptLength: systemPrompt.length,
-        timestamp: new Date().toISOString()
-      });
+      // Try GPT-4 first, fall back to GPT-3.5-Turbo if timeout
+      async function getCompletion(model: 'gpt-4' | 'gpt-3.5-turbo') {
+        console.log(`Attempting with model: ${model}`);
+        const timeoutDuration = model === 'gpt-4' ? 20000 : 45000; // 20s for GPT-4, 45s for GPT-3.5
+        
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => {
+            reject(new Error(`${model} API call timed out after ${timeoutDuration/1000}s`));
+          }, timeoutDuration);
+        });
 
-      // Wrap OpenAI call in a timeout promise
-      const timeoutDuration = 45000; // 45 seconds
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => {
-          reject(new Error('OpenAI API call timed out after 45 seconds'));
-        }, timeoutDuration);
-      });
+        const completionPromise = openai.chat.completions.create({
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { 
+              role: 'user', 
+              content: `Please provide detailed recommendations for ${body.recommendation.target} based on the analysis.` 
+            }
+          ],
+          temperature: 0.7,
+          max_tokens: 1000,
+        });
 
-      const completionPromise = openai.chat.completions.create({
-        model: 'gpt-4',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { 
-            role: 'user', 
-            content: `Please provide detailed recommendations for ${body.recommendation.target} based on the analysis.` 
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 1000,
-      });
+        return Promise.race([completionPromise, timeoutPromise]);
+      }
 
-      // Race between timeout and API call
-      const completion = await Promise.race([
-        completionPromise,
-        timeoutPromise
-      ]) as OpenAI.Chat.ChatCompletion;
+      let completion;
+      try {
+        console.log('Attempting GPT-4...');
+        completion = await getCompletion('gpt-4');
+        console.log('GPT-4 response received successfully');
+      } catch (gpt4Error) {
+        console.log('GPT-4 failed, falling back to GPT-3.5-Turbo...', {
+          error: gpt4Error instanceof Error ? gpt4Error.message : 'Unknown error'
+        });
+        try {
+          completion = await getCompletion('gpt-3.5-turbo');
+          console.log('GPT-3.5-Turbo response received successfully');
+        } catch (fallbackError) {
+          console.error('Both models failed:', {
+            gpt4Error: gpt4Error instanceof Error ? gpt4Error.message : 'Unknown error',
+            fallbackError: fallbackError instanceof Error ? fallbackError.message : 'Unknown error'
+          });
+          throw new Error('Failed to generate advice with both models');
+        }
+      }
 
       console.log('OpenAI response received:', {
         status: 'success',
