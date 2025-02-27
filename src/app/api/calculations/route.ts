@@ -4,48 +4,31 @@ import { validateEnv } from '@/utils/env';
 import type { ApiError } from '@/types/api';
 
 function calculateAnswer(question: string, data: any[], conversation?: any[]): string {
+  console.log('=== Starting calculation ===');
+  console.log('Question:', question);
+  
   const rows = data.slice(1);
   const questionLower = question.toLowerCase();
   
-  // Get the previous question from conversation if it exists
-  const previousQuestion = conversation && conversation.length > 0 
-    ? conversation[conversation.length - 1].content 
-    : '';
-  const previousLower = previousQuestion?.toLowerCase() || '';
-  
-  // Extract unique product names from column E (index 4)
-  const allProducts = new Set(
+  // Extract product name
+  const allProducts = Array.from(new Set(
     rows.map(row => row[4])
-      .filter(Boolean) // Remove null/undefined values
-  );
-
-  // Find the product name from the question by matching against actual products
+      .filter(Boolean)
+  ));
+  
   let matchedProduct = '';
   const questionWords = questionLower.split(' ');
   
-  // Try to find the longest matching product name
+  // Find longest matching product name
   for (const product of allProducts) {
     const productLower = product.toLowerCase();
-    // If the product name is found as a whole in the question
     if (questionLower.includes(productLower)) {
-      // Update if this is a longer match than previous
       if (productLower.length > matchedProduct.length) {
         matchedProduct = product;
       }
     }
   }
-
-  // If no exact match found, try partial matching
-  if (!matchedProduct) {
-    for (const product of allProducts) {
-      const productWords = product.toLowerCase().split(' ');
-      // Check if all words from the product appear in the question
-      if (productWords.every(word => questionWords.includes(word))) {
-        matchedProduct = product;
-        break;
-      }
-    }
-  }
+  console.log('Matched product:', matchedProduct);
 
   // Handle individual month breakdowns
   if ((questionLower.includes('individually') || 
@@ -53,72 +36,34 @@ function calculateAnswer(question: string, data: any[], conversation?: any[]): s
        questionLower.includes('each') || 
        questionLower.includes('break'))) {
     
-    if (!matchedProduct) {
-      return 'Could not identify the product in your question. Please specify the product name more clearly.';
-    }
-
     // Filter rows for the matched product
     const productRows = rows.filter(row => row[4] === matchedProduct);
+    console.log('Product rows count:', productRows.length);
     
     const novSales = productRows
       .filter(row => {
         const date = new Date(row[1]);
-        return date.getMonth() === 10 && date.getFullYear() === 2024;
+        const isNov = date.getMonth() === 10 && date.getFullYear() === 2024;
+        if (isNov) {
+          console.log('November row:', { date: row[1], amount: row[8] });
+        }
+        return isNov;
       })
       .reduce((sum, row) => sum + (parseFloat(row[8]) || 0), 0);
 
     const decSales = productRows
       .filter(row => {
         const date = new Date(row[1]);
-        return date.getMonth() === 11 && date.getFullYear() === 2024;
+        const isDec = date.getMonth() === 11 && date.getFullYear() === 2024;
+        if (isDec) {
+          console.log('December row:', { date: row[1], amount: row[8] });
+        }
+        return isDec;
       })
       .reduce((sum, row) => sum + (parseFloat(row[8]) || 0), 0);
 
+    console.log('Monthly totals:', { novSales, decSales });
     return `November 2024: $${novSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}\nDecember 2024: $${decSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
-  }
-
-  // Handle date-specific queries
-  let dateFilter: (date: Date) => boolean = () => true;
-  let monthsToCalculate: { month: number, year: number }[] = [];
-  
-  if (questionLower.includes('individually') || questionLower.includes('each month')) {
-    if (questionLower.includes('nov') && questionLower.includes('dec')) {
-      monthsToCalculate = [
-        { month: 10, year: 2024 }, // November
-        { month: 11, year: 2024 }  // December
-      ];
-    }
-  } else if (questionLower.includes('nov 2024') && questionLower.includes('dec 2024')) {
-    dateFilter = (date: Date) => 
-      (date.getMonth() === 10 || date.getMonth() === 11) && 
-      date.getFullYear() === 2024;
-  } else if (questionLower.includes('nov 2024')) {
-    dateFilter = (date: Date) => date.getMonth() === 10 && date.getFullYear() === 2024;
-  } else if (questionLower.includes('dec 2024')) {
-    dateFilter = (date: Date) => date.getMonth() === 11 && date.getFullYear() === 2024;
-  }
-
-  // Handle product-specific queries
-  let productFilter: (row: any[]) => boolean = () => true;
-  if (questionLower.includes('protein acai bowl')) {
-    productFilter = (row) => row[4]?.toLowerCase().includes('protein acai bowl');
-  }
-
-  // If asking for individual months
-  if (monthsToCalculate.length > 0) {
-    const results = monthsToCalculate.map(({ month, year }) => {
-      const monthFilter = (date: Date) => date.getMonth() === month && date.getFullYear() === year;
-      const filteredRows = rows.filter(row => 
-        monthFilter(new Date(row[1])) && 
-        productFilter(row)
-      );
-      
-      const total = filteredRows.reduce((sum, row) => sum + (parseFloat(row[8]) || 0), 0);
-      const monthName = new Date(year, month).toLocaleString('default', { month: 'long' });
-      return `${monthName} 2024: $${total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    });
-    
-    return results.join('\n');
   }
 
   // Regular total calculation
@@ -126,26 +71,67 @@ function calculateAnswer(question: string, data: any[], conversation?: any[]): s
       questionLower.includes('revenue') || 
       questionLower.includes('sales') ||
       questionLower.includes('what were')) {
-    const filteredRows = rows.filter(row => 
-      dateFilter(new Date(row[1])) && 
-      productFilter(row)
-    );
+    
+    // Extract date from question
+    const monthMap: { [key: string]: number } = {
+      'jan': 0, 'feb': 1, 'mar': 2, 'apr': 3, 'may': 4, 'jun': 5,
+      'jul': 6, 'aug': 7, 'sep': 8, 'oct': 9, 'nov': 10, 'dec': 11
+    };
+
+    let targetMonth: number | null = null;
+    let targetYear: number | null = null;
+
+    // Look for month and year in question
+    for (const [monthStr, monthNum] of Object.entries(monthMap)) {
+      if (questionLower.includes(monthStr)) {
+        targetMonth = monthNum;
+        // Look for year after month mention
+        const yearMatch = questionLower.substring(questionLower.indexOf(monthStr))
+          .match(/\b20\d{2}\b/);
+        if (yearMatch) {
+          targetYear = parseInt(yearMatch[0]);
+        }
+        break;
+      }
+    }
+
+    console.log('Extracted date:', { targetMonth, targetYear });
+
+    const dateFilter = (date: Date) => {
+      if (targetMonth === null || targetYear === null) return true;
+      return date.getMonth() === targetMonth && date.getFullYear() === targetYear;
+    };
+
+    const filteredRows = rows.filter(row => {
+      const matches = dateFilter(new Date(row[1])) && row[4] === matchedProduct;
+      if (matches) {
+        console.log('Matched row:', { date: row[1], product: row[4], amount: row[8] });
+      }
+      return matches;
+    });
+
+    console.log('Filtered rows count:', filteredRows.length);
 
     if (filteredRows.length === 0) {
       return 'Cannot calculate from available data';
     }
 
     const total = filteredRows.reduce((sum, row) => sum + (parseFloat(row[8]) || 0), 0);
-    return `$${total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    console.log('Total calculated:', total);
+    
+    return `$${total.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
   }
 
   return 'Cannot calculate from available data';
 }
 
 export async function POST(request: Request) {
+  console.log('Calculations POST handler called');
+  
   try {
     const env = validateEnv();
     const body = await request.json();
+    console.log('Request body:', body);
     
     const auth = new google.auth.GoogleAuth({
       credentials: {
@@ -159,16 +145,20 @@ export async function POST(request: Request) {
     const client = await auth.getClient();
     const sheets = google.sheets({ version: 'v4', auth: client as any });
     
+    console.log('Fetching spreadsheet data...');
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: env.SPREADSHEET_ID,
       range: 'Sheet1!A1:I10001',
     });
 
+    console.log('Spreadsheet response received');
     if (!response.data.values) {
       throw new Error('No data found in spreadsheet');
     }
 
     const answer = calculateAnswer(body.question, response.data.values, body.conversation);
+    console.log('Calculated answer:', answer);
+    
     return NextResponse.json({ answer });
 
   } catch (error: unknown) {

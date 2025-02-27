@@ -1,5 +1,12 @@
 "use client";
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
+
+// Debug logging
+console.log('DashboardWidget module initializing');
+
+// Add debug logging
+console.log('DashboardWidget module loading');
+console.log('Import check:', { useState, useEffect });
 
 type Recommendation = {
   type: 'store' | 'product' | 'discount';
@@ -39,6 +46,14 @@ async function fetchRecommendations() {
 }
 
 export function DashboardWidget() {
+  console.log('DashboardWidget component rendering');
+  
+  // Add component initialization logging
+  useEffect(() => {
+    console.log('DashboardWidget mounted');
+    return () => console.log('DashboardWidget unmounted');
+  }, []);
+
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [recStates, setRecStates] = useState<Map<string, RecommendationState>>(new Map());
   const [selectedRec, setSelectedRec] = useState<Recommendation | null>(null);
@@ -141,58 +156,79 @@ export function DashboardWidget() {
   };
 
   return (
-    <div className="flex flex-col space-y-4">
-      <div className="p-6 border rounded-lg shadow-lg bg-white dark:bg-gray-800">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100">
+    <div className="p-8 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
+      <div className="mb-8">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
             Top 3 Recommendations
-          </h3>
+          </h2>
           <a 
-            href={SHEETS_URL}
-            target="_blank"
+            href={SHEETS_URL} 
+            target="_blank" 
             rel="noopener noreferrer"
-            className="text-blue-500 hover:text-blue-600 text-sm"
+            className="flex items-center gap-2 text-blue-600 hover:text-blue-700 transition-colors"
           >
-            View Data Source
+            <span>View Data</span>
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+            </svg>
           </a>
         </div>
-        {recommendations.length > 0 ? (
-          <ul className="space-y-4">
-            {recommendations.slice(0, 3).map((rec, idx) => {
-              const state = recStates.get(rec.target) || { resolved: false, chatOpen: false };
-              if (state.resolved) return null;
-              
-              return (
-                <li key={idx} className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                  <div className="flex justify-between items-start">
-                    <div className="flex-1">
+        <p className="text-gray-700 dark:text-gray-300 mb-6 bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg border border-gray-200 dark:border-gray-600">
+          <span className="block font-semibold mb-2">📊 Quick Guide:</span>
+          • View top products needing attention based on revenue changes<br />
+          • Get AI-powered advice by clicking "Get Advice"<br />
+          • Mark items as resolved once actions are implemented
+        </p>
+      </div>
+
+      {recommendations.length > 0 ? (
+        <ul className="space-y-6">
+          {recommendations.slice(0, 3).map((rec, idx) => {
+            const state = recStates.get(rec.target) || { resolved: false, chatOpen: false };
+            if (state.resolved) return null;
+            
+            return (
+              <li key={idx} className="p-6 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600">
+                <div className="flex justify-between items-start gap-4">
+                  <div className="flex-1">
+                    <div className="font-medium text-red-600 dark:text-red-400 mb-2">
                       {formatRecommendation(rec)}
                     </div>
-                    <div className="flex gap-2 ml-4">
-                      <button
-                        onClick={() => handleChatAbout(rec)}
-                        className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600"
-                      >
-                        Get Advice
-                      </button>
-                      <button
-                        onClick={() => handleResolve(rec)}
-                        className="px-3 py-1 text-sm bg-green-500 text-white rounded hover:bg-green-600"
-                      >
-                        Mark Resolved
-                      </button>
-                    </div>
                   </div>
-                </li>
-              );
-            })}
-          </ul>
-        ) : (
-          <p className="text-gray-600 dark:text-gray-300">
-            No recommendations at this time.
-          </p>
-        )}
-      </div>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => handleChatAbout(rec)}
+                      className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-sm hover:shadow flex items-center gap-2"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                      Get Advice
+                    </button>
+                    <button
+                      onClick={() => handleResolve(rec)}
+                      className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-sm hover:shadow flex items-center gap-2"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      Resolve
+                    </button>
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+          <svg className="w-16 h-16 mx-auto mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <p className="text-lg">All caught up! No recommendations at this time.</p>
+        </div>
+      )}
 
       {selectedRec && (
         <RecommendationDialog 
@@ -243,6 +279,10 @@ function RecommendationDialog({ recommendation, onClose }: RecommendationDialogP
       <div className="bg-white dark:bg-gray-800 rounded-lg max-w-2xl w-full max-h-[80vh] flex flex-col">
         <div className="p-6 border-b">
           <h3 className="text-xl font-bold">Action Plan</h3>
+          <p className="text-sm text-gray-600 dark:text-gray-300 mt-2">
+            Below is an AI-generated action plan based on historical performance data. 
+            Each section provides specific, actionable steps to improve product performance.
+          </p>
         </div>
         
         <div className="p-6 overflow-y-auto">
