@@ -190,84 +190,89 @@ export function GraphWidget() {
       <div className="p-6 flex-1">
         <div className="h-full" style={{ minHeight: '350px', maxHeight: '450px' }}>
           <ResponsiveContainer width="100%" height="100%">
-            {activeGraph === 'revenue' && (
-              <LineChart
-                data={graphData.revenueTrend}
-                margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" />
-                <YAxis tickFormatter={formatCurrency} />
-                <Tooltip formatter={(value) => formatCurrency(value as number)} />
-                <Legend />
-                <Line 
-                  type="monotone" 
-                  dataKey="value" 
-                  name="Revenue" 
-                  stroke="#0088FE" 
-                  activeDot={{ r: 8 }} 
-                />
-              </LineChart>
-            )}
-
-            {activeGraph === 'location' && (
-              <PieChart>
-                <Pie
-                  data={graphData.revenueByLocation}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={true}
-                  outerRadius={120}
-                  fill="#8884d8"
-                  dataKey="value"
-                  nameKey="name"
-                  label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                >
-                  {graphData.revenueByLocation.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(value) => formatCurrency(value as number)} />
-                <Legend />
-              </PieChart>
-            )}
-
-            {activeGraph === 'product' && (
-              <PieChart>
-                <Pie
-                  data={graphData.revenueByProduct}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={true}
-                  outerRadius={120}
-                  fill="#8884d8"
-                  dataKey="value"
-                  nameKey="name"
-                  label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                >
-                  {graphData.revenueByProduct.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(value) => formatCurrency(value as number)} />
-                <Legend />
-              </PieChart>
-            )}
-
-            {activeGraph === 'comparison' && (
-              <BarChart
-                data={graphData.monthlyComparison}
-                margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="month" />
-                <YAxis tickFormatter={formatCurrency} />
-                <Tooltip formatter={(value) => formatCurrency(value as number)} />
-                <Legend />
-                <Bar dataKey="current" name="Current Year" fill="#0088FE" />
-                <Bar dataKey="previous" name="Previous Year" fill="#00C49F" />
-              </BarChart>
-            )}
+            {(() => {
+              if (activeGraph === 'revenue') {
+                return (
+                  <LineChart
+                    data={graphData.revenueTrend}
+                    margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" />
+                    <YAxis tickFormatter={formatCurrency} />
+                    <Tooltip formatter={(value) => formatCurrency(value as number)} />
+                    <Legend />
+                    <Line 
+                      type="monotone" 
+                      dataKey="value" 
+                      name="Revenue" 
+                      stroke="#0088FE" 
+                      activeDot={{ r: 8 }} 
+                    />
+                  </LineChart>
+                );
+              } else if (activeGraph === 'location') {
+                return (
+                  <PieChart>
+                    <Pie
+                      data={graphData.revenueByLocation}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={true}
+                      outerRadius={120}
+                      fill="#8884d8"
+                      dataKey="value"
+                      nameKey="name"
+                      label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                    >
+                      {graphData.revenueByLocation.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(value) => formatCurrency(value as number)} />
+                    <Legend />
+                  </PieChart>
+                );
+              } else if (activeGraph === 'product') {
+                return (
+                  <PieChart>
+                    <Pie
+                      data={graphData.revenueByProduct}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={true}
+                      outerRadius={120}
+                      fill="#8884d8"
+                      dataKey="value"
+                      nameKey="name"
+                      label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                    >
+                      {graphData.revenueByProduct.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(value) => formatCurrency(value as number)} />
+                    <Legend />
+                  </PieChart>
+                );
+              } else if (activeGraph === 'comparison') {
+                return (
+                  <BarChart
+                    data={graphData.monthlyComparison}
+                    margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="month" />
+                    <YAxis tickFormatter={formatCurrency} />
+                    <Tooltip formatter={(value) => formatCurrency(value as number)} />
+                    <Legend />
+                    <Bar dataKey="current" name="Current Year" fill="#0088FE" />
+                    <Bar dataKey="previous" name="Previous Year" fill="#00C49F" />
+                  </BarChart>
+                );
+              }
+              return null;
+            })()}
           </ResponsiveContainer>
         </div>
       </div>
