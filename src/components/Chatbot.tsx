@@ -47,18 +47,24 @@ const isCalculationQuery = (query: string): boolean => {
   return containsKeywords && isDataRequest;
 };
 
-// Enhance the extraction of date information to handle years
+// Enhance the extraction of date information to handle years - using compatible approach
 const extractDateInfo = (query: string) => {
   // Check for month and year patterns (e.g., "November 2024" or "Nov 2024")
-  const monthYearPattern = /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t)?(?:ember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{4})\b/gi;
+  const monthYearPattern = /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t)?(?:ember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{4})\b/i;
   const comparisonPattern = /\b(vs|versus|compared to|against)\b/i;
   
-  // Extract all month-year combinations from the query
-  const matches = [...query.matchAll(monthYearPattern)];
-  const dates = matches.map(match => ({
-    month: match[1],
-    year: match[2]
-  }));
+  // Extract month-year using individual matches instead of matchAll
+  const dates = [];
+  let match;
+  const regex = new RegExp(monthYearPattern, 'gi');
+  
+  // Use exec in a loop instead of matchAll and spread
+  while ((match = regex.exec(query)) !== null) {
+    dates.push({
+      month: match[1],
+      year: match[2]
+    });
+  }
   
   // Check if this is a comparison query
   const isComparison = comparisonPattern.test(query) || dates.length > 1;
@@ -183,16 +189,21 @@ export function Chatbot({ previousQuestion: _prevQuestion }: ChatbotProps) {
         ? new RegExp(`\\b(${locationNames.join('|')})\\b`, 'i')
         : null;
 
-      // Extract parameters from query
-      const monthYearPattern = /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t)?(?:ember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{4})\b/gi;
+      // Extract parameters from query using compatible approach
+      const monthYearPattern = /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t)?(?:ember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{4})\b/i;
       const comparisonPattern = /\b(vs|versus|compared to|against|individually)\b/i;
       
-      // Extract all month-year combinations
-      const dateMatches = [...input.matchAll(monthYearPattern)];
-      const dates = dateMatches.map(match => ({
-        month: match[1],
-        year: match[2]
-      }));
+      // Extract dates using regex.exec() in a loop
+      const dates = [];
+      let dateMatch;
+      const dateRegex = new RegExp(monthYearPattern, 'gi');
+      
+      while ((dateMatch = dateRegex.exec(input)) !== null) {
+        dates.push({
+          month: dateMatch[1],
+          year: dateMatch[2]
+        });
+      }
       
       // Is this a comparison query?
       const isComparison = comparisonPattern.test(input) || dates.length > 1;
