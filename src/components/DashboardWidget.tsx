@@ -245,39 +245,44 @@ function RecommendationDialog({ recommendation, onClose }: RecommendationDialogP
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function getAdvice() {
-      try {
-        console.log('Fetching advice for:', recommendation);
-        const res = await fetch('/api/advice', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ recommendation })
-        });
-        
-        if (!res.ok) {
-          const errorData = await res.json().catch(() => ({ error: `Server error (${res.status})` }));
-          console.error('Advice fetch failed:', errorData);
-          throw new Error(errorData.error || 'Failed to fetch advice');
-        }
-        
-        const data = await res.json();
-        console.log('Advice response:', data);
-        
-        if (data.error) {
-          throw new Error(data.error);
-        }
-        
-        setResponse(data.answer);
-        setError(null);
-      } catch (error) {
-        console.error('Error fetching advice:', error);
-        setError(error instanceof Error ? error.message : 'Failed to load advice');
-        setResponse('');
-      } finally {
-        setLoading(false);
+  // Define getAdvice function
+  const getAdvice = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      console.log('Fetching advice for:', recommendation);
+      const res = await fetch('/api/advice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recommendation })
+      });
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: `Server error (${res.status})` }));
+        console.error('Advice fetch failed:', errorData);
+        throw new Error(errorData.error || 'Failed to fetch advice');
       }
+      
+      const data = await res.json();
+      console.log('Advice response:', data);
+      
+      if (data.error) {
+        throw new Error(data.error);
+      }
+      
+      setResponse(data.answer);
+      setError(null);
+    } catch (error) {
+      console.error('Error fetching advice:', error);
+      setError(error instanceof Error ? error.message : 'Failed to load advice');
+      setResponse('');
+    } finally {
+      setLoading(false);
     }
+  };
+
+  // Call getAdvice on mount
+  useEffect(() => {
     getAdvice();
   }, [recommendation]);
 
