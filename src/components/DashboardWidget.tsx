@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from 'react';
+import { RecommendationDialog } from './RecommendationDialog';
 // Let's use SVG icons directly instead of the heroicons package
 
 // Simple SVG icons directly in the component
@@ -88,6 +89,32 @@ function RecommendationCard({ recommendation }: { recommendation: any }) {
     </div>
   );
 }
+
+// Add this function to extract values from the impact string
+const extractValuesFromImpact = (impact: string) => {
+  try {
+    // Extract values using regex
+    const novMatch = impact.match(/November 2024: \$([0-9,.]+)/);
+    const decMatch = impact.match(/December 2024: \$([0-9,.]+)/);
+    
+    const novValue = novMatch ? novMatch[1].replace(/,/g, '') : null;
+    const decValue = decMatch ? decMatch[1].replace(/,/g, '') : null;
+    
+    return {
+      previousValue: novValue,
+      currentValue: decValue
+    };
+  } catch (e) {
+    console.error('Error extracting values:', e);
+    return { previousValue: null, currentValue: null };
+  }
+};
+
+// Function to clean up the impact text by removing the parenthetical values
+const cleanImpactText = (impact: string) => {
+  // Remove the parenthetical part containing the values that we're already displaying separately
+  return impact.replace(/\s*\(November 2024:.+\)/, '');
+};
 
 export function DashboardWidget() {
   console.log('DashboardWidget component rendering');
@@ -205,15 +232,17 @@ export function DashboardWidget() {
 
   const handleChatAbout = (rec: Recommendation) => {
     console.log('Opening advice for:', rec);
-    setSelectedRec(rec);
+    setTimeout(() => {
+      setSelectedRec(rec);
+    }, 0);
   };
 
   return (
-    <div className="p-8 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
-      <div className="mb-8">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-            Top 3 Recommendations
+    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden h-full flex flex-col">
+      <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex justify-between items-center">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+            Recommendations
           </h2>
           <a 
             href={SHEETS_URL} 
@@ -227,68 +256,104 @@ export function DashboardWidget() {
             </svg>
           </a>
         </div>
-        <p className="text-gray-700 dark:text-gray-300 mb-6 bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg border border-gray-200 dark:border-gray-600">
-          <span className="block font-semibold mb-2">📊 Quick Guide:</span>
-          • View top products needing attention based on revenue changes<br />
-          • Get AI-powered advice by clicking "Get Advice"<br />
-          • Mark items as resolved once actions are implemented
-        </p>
       </div>
-
-      {recommendations.length > 0 ? (
-        <ul className="space-y-6">
-          {recommendations
-            // Filter out resolved recommendations
-            .filter(rec => {
-              const state = recStates.get(rec.target) || { resolved: false, chatOpen: false };
-              return !state.resolved;
-            })
-            // Take the first 3 unresolved recommendations
-            .slice(0, 3)
-            .map((rec, idx) => {
-              const state = recStates.get(rec.target) || { resolved: false, chatOpen: false };
-              
-              return (
-                <li key={idx} className="p-6 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600">
-                  <div className="flex justify-between items-start gap-4">
-                    <div className="flex-1">
-                      <div className="font-medium text-red-600 dark:text-red-400 mb-2">
-                        {formatRecommendation(rec)}
+      
+      <div className="p-6 flex-1 overflow-auto">
+        {loading ? (
+          <div className="animate-pulse space-y-4">
+            <div className="h-12 bg-gray-200 dark:bg-gray-700 rounded"></div>
+            <div className="h-12 bg-gray-200 dark:bg-gray-700 rounded"></div>
+          </div>
+        ) : error ? (
+          <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-red-600">{error}</p>
+            <button 
+              onClick={() => window.location.reload()}
+              className="mt-2 px-3 py-1 bg-red-100 text-red-800 rounded hover:bg-red-200"
+            >
+              Retry
+            </button>
+          </div>
+        ) : recommendations && recommendations.length > 0 ? (
+          <ul className="space-y-4">
+            {recommendations
+              // Filter out resolved recommendations
+              .filter(rec => {
+                const state = recStates.get(rec.target) || { resolved: false, chatOpen: false };
+                return !state.resolved;
+              })
+              // Take the first 3 unresolved recommendations
+              .slice(0, 3)
+              .map((rec, idx) => {
+                const state = recStates.get(rec.target) || { resolved: false, chatOpen: false };
+                
+                return (
+                  <li key={idx} className="p-6 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600">
+                    <div className="flex flex-col md:flex-row justify-between gap-6">
+                      <div className="flex-1">
+                        <div className="font-medium text-red-600 dark:text-red-400 mb-3 flex items-center gap-2 text-lg">
+                          <span>Urgent: {rec.target}</span>
+                        </div>
+                        
+                        <div className="text-gray-700 dark:text-gray-300 space-y-3 mb-4">
+                          <p className="mb-2">{cleanImpactText(rec.impact)}</p>
+                          
+                          {/* Extract and display values */}
+                          {(() => {
+                            const { previousValue, currentValue } = extractValuesFromImpact(rec.impact);
+                            return (
+                              <>
+                                <div className="flex items-center gap-2 text-sm">
+                                  <span className="font-medium">November 2024:</span>
+                                  <span className="text-gray-900 dark:text-gray-100">
+                                    ${previousValue ? Number(previousValue).toLocaleString('en-US', { minimumFractionDigits: 2 }) : '0.00'}
+                                  </span>
+                                </div>
+                                
+                                <div className="flex items-center gap-2 text-sm">
+                                  <span className="font-medium">December 2024:</span>
+                                  <span className="text-gray-900 dark:text-gray-100">
+                                    ${currentValue ? Number(currentValue).toLocaleString('en-US', { minimumFractionDigits: 2 }) : '0.00'}
+                                  </span>
+                                </div>
+                              </>
+                            );
+                          })()}
+                        </div>
+                      </div>
+                      
+                      <div className="flex flex-col gap-2 self-start">
+                        <button
+                          onClick={() => handleChatAbout(rec)}
+                          className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-sm hover:shadow flex items-center justify-center gap-2 w-32"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                          </svg>
+                          Get Advice
+                        </button>
+                        <button
+                          onClick={() => handleResolve(rec)}
+                          className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-sm hover:shadow flex items-center justify-center gap-2 w-32"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          Resolve
+                        </button>
                       </div>
                     </div>
-                    <div className="flex gap-3">
-                      <button
-                        onClick={() => handleChatAbout(rec)}
-                        className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-sm hover:shadow flex items-center gap-2"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                        </svg>
-                        Get Advice
-                      </button>
-                      <button
-                        onClick={() => handleResolve(rec)}
-                        className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-sm hover:shadow flex items-center gap-2"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
-                        Resolve
-                      </button>
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
-        </ul>
-      ) : (
-        <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-          <svg className="w-16 h-16 mx-auto mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <p className="text-lg">All caught up! No recommendations at this time.</p>
-        </div>
-      )}
+                  </li>
+                );
+              })}
+          </ul>
+        ) : (
+          <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+            <div className="text-5xl mb-4">✅</div>
+            <p className="text-lg">All caught up! No recommendations at this time.</p>
+          </div>
+        )}
+      </div>
 
       {selectedRec && (
         <RecommendationDialog 
@@ -296,102 +361,6 @@ export function DashboardWidget() {
           onClose={() => setSelectedRec(null)}
         />
       )}
-    </div>
-  );
-}
-
-function RecommendationDialog({ recommendation, onClose }: RecommendationDialogProps) {
-  const [response, setResponse] = useState<string>('');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  // Define getAdvice function
-  const getAdvice = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      console.log('Fetching advice for:', recommendation);
-      const res = await fetch('/api/advice', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ recommendation })
-      });
-      
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({ error: `Server error (${res.status})` }));
-        console.error('Advice fetch failed:', errorData);
-        throw new Error(errorData.error || 'Failed to fetch advice');
-      }
-      
-      const data = await res.json();
-      console.log('Advice response:', data);
-      
-      if (data.error) {
-        throw new Error(data.error);
-      }
-      
-      setResponse(data.answer);
-      setError(null);
-    } catch (error) {
-      console.error('Error fetching advice:', error);
-      setError(error instanceof Error ? error.message : 'Failed to load advice');
-      setResponse('');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Call getAdvice on mount
-  useEffect(() => {
-    getAdvice();
-  }, [recommendation]);
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-lg max-w-2xl w-full max-h-[80vh] flex flex-col">
-        <div className="p-6 border-b">
-          <h3 className="text-xl font-bold">Action Plan</h3>
-          <p className="text-sm text-gray-600 dark:text-gray-300 mt-2">
-            Below is an AI-generated action plan based on historical performance data. 
-            Each section provides specific, actionable steps to improve product performance.
-          </p>
-        </div>
-        
-        <div className="p-6 overflow-y-auto">
-          <div className="mb-4">
-            <strong>Product: </strong>{recommendation.target}
-          </div>
-          <div className="mb-4">
-            <strong>Situation: </strong>{recommendation.impact}
-          </div>
-          <div className="prose dark:prose-invert max-w-none">
-            {loading ? (
-              <p>Loading advice...</p>
-            ) : error ? (
-              <div className="text-red-600">
-                <p>{error}</p>
-                <button 
-                  onClick={() => getAdvice()}
-                  className="mt-2 px-3 py-1 bg-red-100 text-red-800 rounded hover:bg-red-200"
-                >
-                  Retry
-                </button>
-              </div>
-            ) : (
-              <div className="whitespace-pre-wrap">{response}</div>
-            )}
-          </div>
-        </div>
-
-        <div className="p-6 border-t flex justify-end">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-          >
-            Close
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

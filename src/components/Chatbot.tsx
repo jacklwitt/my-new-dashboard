@@ -12,50 +12,63 @@ type ChatbotProps = {
   previousQuestion?: string;
 };
 
+// Add types for products and locations
+type Product = {
+  id: string;
+  name: string;
+  category: string;
+};
+
+type Location = {
+  id: string;
+  name: string;
+  region: string;
+};
+
 // Module load logging
 console.log('Chatbot module initializing');
 console.log('Import check:', { useState, useEffect });
 
-function isCalculationQuery(question: string, previousQuestion?: string): boolean {
-  console.log('Checking if calculation query:', { question, previousQuestion });
+const isCalculationQuery = (query: string): boolean => {
   const calculationKeywords = [
-    'total sales',
-    'revenue',
-    'sales for',
-    'how much',
-    'how many',
-    'what were',
-    'what was'
+    'sales', 'revenue', 'compare', 'show', 'calculate', 'total', 
+    'average', 'growth', 'decline', 'by month', 'between', 'location', 
+    'product', 'percentage'
   ];
   
-  const complexQuestions = [
-    'how can i',
-    'how do i',
-    'how should',
-    'why',
-    'explain',
-    'analyze',
-    'compare',
-    'suggest',
-    'recommend'
-  ];
+  // Check if the query contains calculation-related keywords
+  const containsKeywords = calculationKeywords.some(keyword => 
+    query.toLowerCase().includes(keyword.toLowerCase())
+  );
   
-  const questionLower = question.toLowerCase();
+  // Check for specific patterns that indicate data requests
+  const isDataRequest = /show|display|what (were|was)|how much|compare/.test(query.toLowerCase());
+  
+  return containsKeywords && isDataRequest;
+};
 
-  // Handle follow-up questions
-  if (questionLower.includes('individually') || 
-      questionLower.includes('each') || 
-      questionLower.includes('break') || 
-      questionLower.includes('separately')) {
-    console.log('isCalculationQuery result:', true);
-    return true;
-  }
+// Enhance the extraction of date information to handle years
+const extractDateInfo = (query: string) => {
+  // Check for month and year patterns (e.g., "November 2024" or "Nov 2024")
+  const monthYearPattern = /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t)?(?:ember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{4})\b/gi;
+  const comparisonPattern = /\b(vs|versus|compared to|against)\b/i;
   
-  const result = calculationKeywords.some(keyword => questionLower.includes(keyword)) &&
-         !complexQuestions.some(phrase => questionLower.includes(phrase));
-  console.log('isCalculationQuery result:', result);
-  return result;
-}
+  // Extract all month-year combinations from the query
+  const matches = [...query.matchAll(monthYearPattern)];
+  const dates = matches.map(match => ({
+    month: match[1],
+    year: match[2]
+  }));
+  
+  // Check if this is a comparison query
+  const isComparison = comparisonPattern.test(query) || dates.length > 1;
+  
+  return {
+    dates,
+    isComparison,
+    hasYearSpecified: dates.length > 0
+  };
+};
 
 // Use underscore to indicate intentional non-use
 export function Chatbot({ previousQuestion: _prevQuestion }: ChatbotProps) {
@@ -64,6 +77,33 @@ export function Chatbot({ previousQuestion: _prevQuestion }: ChatbotProps) {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [locations, setLocations] = useState<Location[]>([]);
+
+  // Fetch products and locations on mount
+  useEffect(() => {
+    async function fetchMetadata() {
+      try {
+        // Fetch products
+        const productsResponse = await fetch('/api/products');
+        if (productsResponse.ok) {
+          const productsData = await productsResponse.json();
+          setProducts(productsData.products || []);
+        }
+
+        // Fetch locations
+        const locationsResponse = await fetch('/api/locations');
+        if (locationsResponse.ok) {
+          const locationsData = await locationsResponse.json();
+          setLocations(locationsData.locations || []);
+        }
+      } catch (error) {
+        console.error('Failed to fetch metadata:', error);
+      }
+    }
+
+    fetchMetadata();
+  }, []);
 
   useEffect(() => {
     console.log('Chatbot mounted');
@@ -117,7 +157,6 @@ export function Chatbot({ previousQuestion: _prevQuestion }: ChatbotProps) {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    console.log('Submit handler called with input:', input);
     
     if (!input.trim()) return;
 
@@ -131,10 +170,76 @@ export function Chatbot({ previousQuestion: _prevQuestion }: ChatbotProps) {
     setIsLoading(true);
 
     try {
-      const previousQuestion = messages.length > 0 ? messages[messages.length - 1].content : undefined;
-      const endpoint = isCalculationQuery(input, previousQuestion) ? '/api/calculations' : '/api/chat';
-      console.log('Selected endpoint:', endpoint);
+      // Get product and location names for pattern matching
+      const productNames = products.map(p => p.name);
+      const locationNames = locations.map(l => l.name);
       
+      // Create regex patterns for dynamic matching
+      const productPattern = productNames.length > 0 
+        ? new RegExp(`\\b(${productNames.join('|')})\\b`, 'i') 
+        : null;
+      
+      const locationPattern = locationNames.length > 0
+        ? new RegExp(`\\b(${locationNames.join('|')})\\b`, 'i')
+        : null;
+
+      // Extract parameters from query
+      const monthYearPattern = /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t)?(?:ember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{4})\b/gi;
+      const comparisonPattern = /\b(vs|versus|compared to|against|individually)\b/i;
+      
+      // Extract all month-year combinations
+      const dateMatches = [...input.matchAll(monthYearPattern)];
+      const dates = dateMatches.map(match => ({
+        month: match[1],
+        year: match[2]
+      }));
+      
+      // Is this a comparison query?
+      const isComparison = comparisonPattern.test(input) || dates.length > 1;
+      
+      const productMatch = productPattern ? input.match(productPattern) : null;
+      const locationMatch = locationPattern ? input.match(locationPattern) : null;
+      
+      // Build query parameters
+      const queryParams: Record<string, any> = {};
+      
+      // Add comparison parameters
+      if (dates.length > 0) {
+        queryParams.dates = dates;
+        queryParams.isComparison = isComparison;
+        queryParams.displayFormat = input.includes('individually') ? 'separate' : 'combined';
+      } else {
+        // If no year specified, look for just month names
+        const monthMatch = input.match(/\b(January|February|March|April|May|June|July|August|September|October|November|December)\b/i);
+        if (monthMatch) {
+          queryParams.timeframe = 'month';
+          queryParams.month = monthMatch[1].toLowerCase();
+          // Default to current year if not specified
+          queryParams.year = '2024'; // Hardcoded for demo
+          queryParams.specific = true;
+        }
+      }
+      
+      if (productMatch) {
+        queryParams.product = productMatch[1];
+      }
+      
+      if (locationMatch) {
+        queryParams.location = locationMatch[1];
+      }
+      
+      // Determine endpoint based on query type
+      let endpoint = '/api/chat';
+      
+      if (isCalculationQuery(input)) {
+        endpoint = '/api/calculations';
+        console.log('Using calculations endpoint with params:', queryParams);
+      } else if (/improve|suggest|recommend|strategy|better|boost|factors|impacting/i.test(input)) {
+        console.log('Using advice context with chat endpoint');
+        queryParams.requestType = 'improvement';
+      }
+
+      // Make the API request
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
@@ -142,13 +247,26 @@ export function Chatbot({ previousQuestion: _prevQuestion }: ChatbotProps) {
         },
         body: JSON.stringify({
           question: input,
-          conversation: messages
+          conversation: messages,
+          includeData: true,
+          timeParameters: queryParams,
+          context: {
+            currentView: 'dashboard',
+            visibleProducts: productNames,
+            visibleLocations: locationNames,
+            requestType: queryParams.requestType,
+            productFocus: queryParams.product,
+            locationFocus: queryParams.location,
+            comparison: isComparison
+          }
         }),
       });
 
-      console.log('Response status:', response.status);
+      if (!response.ok) {
+        throw new Error(`Server error (${response.status})`);
+      }
+
       const data = await response.json();
-      console.log('Response data:', data);
       
       if (data.error) {
         throw new Error(data.error);
@@ -173,23 +291,25 @@ export function Chatbot({ previousQuestion: _prevQuestion }: ChatbotProps) {
   };
 
   return (
-    <div className="flex flex-col h-[700px] border border-gray-200 rounded-xl shadow-lg bg-white dark:bg-gray-800">
+    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden flex flex-col h-[650px]">
       <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-3">
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
           Analytics Assistant
         </h2>
-        <div className="bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg border border-gray-200 dark:border-gray-600">
-          <p className="text-gray-700 dark:text-gray-300 space-y-2">
-            <span className="block font-semibold">💡 Try asking:</span>
-            <span className="block ml-4">• "What were total sales for [product] in November 2024?"</span>
-            <span className="block ml-4">• "Show sales for [product] in Nov and Dec 2024 individually"</span>
-            <span className="block ml-4">• "How can I improve sales for [product] based on previous data?"</span>
-            <span className="block ml-4">• "Compare revenue between months"</span>
+        
+        <div className="mt-3 bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-100 dark:border-blue-800">
+          <p className="text-sm text-blue-700 dark:text-blue-300">
+            <span className="font-medium">Try asking high-value questions:</span>
           </p>
+          <ul className="mt-2 space-y-1 text-sm text-blue-700 dark:text-blue-300">
+            <li>• 🏆 "Which location had the highest revenue for {products[0]?.name || '[product]'} in December 2024?"</li>
+            <li>• 📊 "Show me the top 3 performing products in November 2024"</li>
+            <li>• 💡 "What factors are impacting {products[0]?.name || '[product]'} performance and how can we improve it?"</li>
+          </ul>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-8 space-y-6">
+      <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-gray-50 dark:bg-gray-900/50">
         {messages.map((message, index) => (
           <div
             key={index}
@@ -219,14 +339,14 @@ export function Chatbot({ previousQuestion: _prevQuestion }: ChatbotProps) {
         )}
       </div>
 
-      <form onSubmit={handleSubmit} className="p-4 border-t border-gray-200 dark:border-gray-700">
+      <form onSubmit={handleSubmit} className="p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
         <div className="flex gap-3">
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Ask a question..."
-            className="flex-1 p-3 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-600 focus:border-transparent"
+            className="flex-1 p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             disabled={isLoading}
           />
           <button
