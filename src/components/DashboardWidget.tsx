@@ -90,9 +90,21 @@ function RecommendationCard({ recommendation }: { recommendation: any }) {
   );
 }
 
-// Add this function to extract values from the impact string
-const extractValuesFromImpact = (impact: string) => {
+// Update the cleanImpactText function to handle undefined values
+const cleanImpactText = (impact?: string): string => {
+  // Handle undefined case
+  if (!impact) return '';
+  
+  // Remove the parenthetical part containing the values that we're already displaying separately
+  return impact.replace(/\s*\(November 2024:.+\)/, '');
+};
+
+// Make same change in extractValuesFromImpact
+const extractValuesFromImpact = (impact?: string) => {
   try {
+    // Handle undefined case
+    if (!impact) return { previousValue: null, currentValue: null };
+    
     // Extract values using regex
     const novMatch = impact.match(/November 2024: \$([0-9,.]+)/);
     const decMatch = impact.match(/December 2024: \$([0-9,.]+)/);
@@ -108,12 +120,6 @@ const extractValuesFromImpact = (impact: string) => {
     console.error('Error extracting values:', e);
     return { previousValue: null, currentValue: null };
   }
-};
-
-// Function to clean up the impact text by removing the parenthetical values
-const cleanImpactText = (impact: string) => {
-  // Remove the parenthetical part containing the values that we're already displaying separately
-  return impact.replace(/\s*\(November 2024:.+\)/, '');
 };
 
 export function DashboardWidget() {
