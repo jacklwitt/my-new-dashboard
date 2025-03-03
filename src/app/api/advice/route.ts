@@ -102,7 +102,6 @@ async function getCompletion(
   targetProduct: string
 ): Promise<ChatCompletion> {
   console.log(`Attempting with model: ${model}`);
-  // Adjust timeouts to work within Vercel's 10s limit
   const timeoutDuration = model === 'gpt-4' ? 8000 : 9000; // 8s for GPT-4, 9s for GPT-3.5
   
   const timeoutPromise = new Promise<never>((_, reject) => {
@@ -111,7 +110,6 @@ async function getCompletion(
     }, timeoutDuration);
   });
 
-  // Add shorter timeout to OpenAI client itself
   const completionPromise = openai.chat.completions.create({
     model,
     messages: [
@@ -123,7 +121,8 @@ async function getCompletion(
     ],
     temperature: 0.7,
     max_tokens: 1000,
-    timeout: timeoutDuration - 1000, // Give 1s buffer for our own timeout
+  }, {
+    timeout: timeoutDuration - 1000 // Add timeout to request options instead
   });
 
   return Promise.race([completionPromise, timeoutPromise]);
@@ -220,7 +219,7 @@ Keep recommendations specific, data-driven, and actionable within 30 days.`;
       console.log('Creating OpenAI client...');
       const openai = new OpenAI({
         apiKey: env.OPENAI_API_KEY,
-        timeout: 8000, // Reduce default timeout
+        maxRetries: 0, // Disable retries to respect our timeouts
       });
 
       let completion: ChatCompletion;
