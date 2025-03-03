@@ -102,7 +102,8 @@ async function getCompletion(
   targetProduct: string
 ): Promise<ChatCompletion> {
   console.log(`Attempting with model: ${model}`);
-  const timeoutDuration = model === 'gpt-4' ? 20000 : 45000;
+  // Adjust timeouts to work within Vercel's 10s limit
+  const timeoutDuration = model === 'gpt-4' ? 8000 : 9000; // 8s for GPT-4, 9s for GPT-3.5
   
   const timeoutPromise = new Promise<never>((_, reject) => {
     setTimeout(() => {
@@ -110,6 +111,7 @@ async function getCompletion(
     }, timeoutDuration);
   });
 
+  // Add shorter timeout to OpenAI client itself
   const completionPromise = openai.chat.completions.create({
     model,
     messages: [
@@ -121,6 +123,7 @@ async function getCompletion(
     ],
     temperature: 0.7,
     max_tokens: 1000,
+    timeout: timeoutDuration - 1000, // Give 1s buffer for our own timeout
   });
 
   return Promise.race([completionPromise, timeoutPromise]);
@@ -217,28 +220,41 @@ Keep recommendations specific, data-driven, and actionable within 30 days.`;
       console.log('Creating OpenAI client...');
       const openai = new OpenAI({
         apiKey: env.OPENAI_API_KEY,
-        timeout: 30000,
+        timeout: 8000, // Reduce default timeout
       });
 
       let completion: ChatCompletion;
       try {
-        console.log('Attempting GPT-4...');
-        completion = await getCompletion(openai, 'gpt-4', systemPrompt, body.recommendation.target);
-        console.log('GPT-4 response received successfully');
-      } catch (gpt4Error) {
-        console.log('GPT-4 failed, falling back to GPT-3.5-Turbo...', {
-          error: gpt4Error instanceof Error ? gpt4Error.message : 'Unknown error'
-        });
-        try {
-          completion = await getCompletion(openai, 'gpt-3.5-turbo', systemPrompt, body.recommendation.target);
-          console.log('GPT-3.5-Turbo response received successfully');
-        } catch (fallbackError) {
-          console.error('Both models failed:', {
-            gpt4Error: gpt4Error instanceof Error ? gpt4Error.message : 'Unknown error',
-            fallbackError: fallbackError instanceof Error ? fallbackError.message : 'Unknown error'
-          });
-          throw new Error('Failed to generate advice with both models');
+        // Use GPT-3.5-Turbo first in production for faster response
+        if (process.env.VERCEL === '1') {
+          console.log('Production environment detected, trying GPT-3.5-Turbo first...');
+          try {
+            completion = await getCompletion(openai, 'gpt-3.5-turbo', systemPrompt, body.recommendation.target);
+            console.log('GPT-3.5-Turbo response received successfully');
+          } catch (turboError) {
+            console.log('GPT-3.5-Turbo failed, attempting GPT-4...', {
+              error: turboError instanceof Error ? turboError.message : 'Unknown error'
+            });
+            completion = await getCompletion(openai, 'gpt-4', systemPrompt, body.recommendation.target);
+            console.log('GPT-4 response received successfully');
+          }
+        } else {
+          // In development, try GPT-4 first
+          console.log('Development environment detected, trying GPT-4 first...');
+          try {
+            completion = await getCompletion(openai, 'gpt-4', systemPrompt, body.recommendation.target);
+            console.log('GPT-4 response received successfully');
+          } catch (gpt4Error) {
+            console.log('GPT-4 failed, falling back to GPT-3.5-Turbo...', {
+              error: gpt4Error instanceof Error ? gpt4Error.message : 'Unknown error'
+            });
+            completion = await getCompletion(openai, 'gpt-3.5-turbo', systemPrompt, body.recommendation.target);
+            console.log('GPT-3.5-Turbo response received successfully');
+          }
         }
+      } catch (error) {
+        console.error('All model attempts failed:', error);
+        throw new Error('Failed to generate advice with any available model');
       }
 
       console.log('OpenAI response received:', {

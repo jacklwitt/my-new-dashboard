@@ -243,6 +243,7 @@ export function DashboardWidget() {
 function RecommendationDialog({ recommendation, onClose }: RecommendationDialogProps) {
   const [response, setResponse] = useState<string>('');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function getAdvice() {
@@ -255,18 +256,24 @@ function RecommendationDialog({ recommendation, onClose }: RecommendationDialogP
         });
         
         if (!res.ok) {
-          throw new Error('Failed to fetch advice');
+          const errorData = await res.json().catch(() => ({ error: `Server error (${res.status})` }));
+          console.error('Advice fetch failed:', errorData);
+          throw new Error(errorData.error || 'Failed to fetch advice');
         }
         
         const data = await res.json();
+        console.log('Advice response:', data);
+        
         if (data.error) {
           throw new Error(data.error);
         }
         
         setResponse(data.answer);
+        setError(null);
       } catch (error) {
         console.error('Error fetching advice:', error);
-        setResponse('Failed to load advice. Please try again.');
+        setError(error instanceof Error ? error.message : 'Failed to load advice');
+        setResponse('');
       } finally {
         setLoading(false);
       }
@@ -295,6 +302,16 @@ function RecommendationDialog({ recommendation, onClose }: RecommendationDialogP
           <div className="prose dark:prose-invert max-w-none">
             {loading ? (
               <p>Loading advice...</p>
+            ) : error ? (
+              <div className="text-red-600">
+                <p>{error}</p>
+                <button 
+                  onClick={() => getAdvice()}
+                  className="mt-2 px-3 py-1 bg-red-100 text-red-800 rounded hover:bg-red-200"
+                >
+                  Retry
+                </button>
+              </div>
             ) : (
               <div className="whitespace-pre-wrap">{response}</div>
             )}
