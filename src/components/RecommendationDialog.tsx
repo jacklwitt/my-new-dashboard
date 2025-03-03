@@ -1,6 +1,18 @@
 import { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 
+// Add the missing DialogProps interface
+interface DialogProps {
+  recommendation: {
+    target: string;
+    impact?: string;
+    type: string;
+    action: string;
+    value?: string;
+  };
+  onClose: () => void;
+}
+
 export function RecommendationDialog({ recommendation, onClose }: DialogProps) {
   const [response, setResponse] = useState<string>('');
   const [loading, setLoading] = useState(true);
