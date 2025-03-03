@@ -32,8 +32,8 @@ interface DiscountData extends AggregatedData {
 
 // Add shared type definitions
 type Recommendation = {
-  type: 'store' | 'product' | 'discount';
-  action: string;
+  type: 'store' | 'product';
+  action: 'reverse_decline' | 'maintain_growth';
   target: string;
   metric: string;
   value: string;
@@ -124,114 +124,244 @@ function analyzeSeasonality(monthlyData: Map<string, number>, currentMonthPair: 
 
 async function generateRecommendations(data: any[]): Promise<Recommendation[]> {
   const rows = data.slice(1);
-  const recommendations: Recommendation[] = [];
-
-  // Track monthly sales by product
-  const monthlyProductSales = new Map<string, Map<string, number>>();
   
-  // Process and validate rows
+  // Track monthly sales by product and store
+  const monthlyProductSales = new Map<string, Map<string, number>>();
+  const monthlyStoreSales = new Map<string, Map<string, number>>();
+  
+  // Process rows
   rows.forEach(row => {
-    try {
-      const date = new Date(row[1]);
-      if (isNaN(date.getTime())) {
-        console.warn('Invalid date found:', row[1]);
-        return;
-      }
+    const date = new Date(row[1]);
+    if (isNaN(date.getTime())) return;
 
-      const monthKey = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}`;
-      const product = row[4];
-      const sales = parseFloat(row[8]) || 0;
+    const monthKey = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}`;
+    const product = row[4];
+    const store = row[3]; 
+    const sales = parseFloat(row[8]) || 0;
 
-      if (!monthlyProductSales.has(monthKey)) {
-        monthlyProductSales.set(monthKey, new Map());
-      }
-      const monthSales = monthlyProductSales.get(monthKey)!;
-      monthSales.set(product, (monthSales.get(product) || 0) + sales);
-    } catch (error) {
-      console.warn('Error processing row:', error);
+    if (!store || !product) return;
+
+    // Track product sales
+    if (!monthlyProductSales.has(monthKey)) {
+      monthlyProductSales.set(monthKey, new Map());
     }
+    monthlyProductSales.get(monthKey)!.set(
+      product, 
+      (monthlyProductSales.get(monthKey)!.get(product) || 0) + sales
+    );
+
+    // Track store sales
+    if (!monthlyStoreSales.has(monthKey)) {
+      monthlyStoreSales.set(monthKey, new Map());
+    }
+    monthlyStoreSales.get(monthKey)!.set(
+      store, 
+      (monthlyStoreSales.get(monthKey)!.get(store) || 0) + sales
+    );
   });
 
-  // Get sorted months
+  // Get current and previous months
   const months = Array.from(monthlyProductSales.keys()).sort();
-  if (months.length < 2) {
-    console.warn('Not enough months of data');
-    return [];
-  }
+  if (months.length < 2) return [];
 
-  // Get last two months
   const currentMonth = months[months.length - 1];
   const previousMonth = months[months.length - 2];
-
-  console.log('Analyzing months:', { currentMonth, previousMonth });
-
-  const currentSales = monthlyProductSales.get(currentMonth) || new Map();
-  const previousSales = monthlyProductSales.get(previousMonth) || new Map();
-
-  // Find products with significant decline
-  const declines = new Map<string, number>();
-  previousSales.forEach((previousAmount, product) => {
-    if (previousAmount >= 100) { // Minimum threshold
-      const currentAmount = currentSales.get(product) || 0;
-      const decline = ((previousAmount - currentAmount) / previousAmount) * 100;
-      if (decline > 3) { // Significant decline threshold
-        declines.set(product, decline);
-      }
-    }
-  });
-
-  console.log('Found declines:', Array.from(declines.entries()));
-
-  // Sort and get top 3 declines
-  const sortedDeclines = Array.from(declines.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3);
-
-  // Format month for display
-  const formatMonth = (monthKey: string) => {
-    const [year, month] = monthKey.split('-');
-    return new Date(parseInt(year), parseInt(month) - 1)
-      .toLocaleString('default', { month: 'long', year: 'numeric' });
-  };
-
-  // Generate recommendations
-  sortedDeclines.forEach(([product, decline]) => {
-    const previousAmount = previousSales.get(product) || 0;
-    const currentAmount = currentSales.get(product) || 0;
-
-    recommendations.push({
-      type: 'product',
-      action: 'reverse_decline',
-      target: product,
-      metric: 'Revenue',
-      value: `$${currentAmount.toFixed(2)}`,
-      benchmark: `$${previousAmount.toFixed(2)}`,
-      impact: `Revenue declining ${decline.toFixed(1)}% (${formatMonth(previousMonth)}: $${previousAmount.toFixed(2)} → ${formatMonth(currentMonth)}: $${currentAmount.toFixed(2)})`
+  
+  // Find all products with changes
+  const productChanges: Array<{
+    product: string;
+    change: number;
+    currentSales: number;
+    previousSales: number;
+  }> = [];
+  
+  const currentProducts = monthlyProductSales.get(currentMonth) || new Map();
+  const previousProducts = monthlyProductSales.get(previousMonth) || new Map();
+  
+  previousProducts.forEach((previousAmount, product) => {
+    if (previousAmount < 100) return; // Ignore low volume
+    const currentAmount = currentProducts.get(product) || 0;
+    const change = ((currentAmount - previousAmount) / previousAmount) * 100;
+    productChanges.push({
+      product,
+      change,
+      currentSales: currentAmount,
+      previousSales: previousAmount
     });
   });
-
-  return recommendations;
+  
+  // Find all stores with changes
+  const storeChanges: Array<{
+    store: string;
+    change: number;
+    currentSales: number;
+    previousSales: number;
+  }> = [];
+  
+  const currentStores = monthlyStoreSales.get(currentMonth) || new Map();
+  const previousStores = monthlyStoreSales.get(previousMonth) || new Map();
+  
+  previousStores.forEach((previousAmount, store) => {
+    if (previousAmount < 100) return; // Ignore low volume
+    const currentAmount = currentStores.get(store) || 0;
+    const change = ((currentAmount - previousAmount) / previousAmount) * 100;
+    storeChanges.push({
+      store,
+      change,
+      currentSales: currentAmount,
+      previousSales: previousAmount
+    });
+  });
+  
+  // Sort by absolute change (highest first)
+  productChanges.sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
+  storeChanges.sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
+  
+  // Force a store recommendation even if none meet the threshold
+  if (storeChanges.length === 0 && previousStores.size > 0) {
+    // Get the store with the highest sales
+    const storesByRevenue = Array.from(previousStores.entries())
+      .sort((a, b) => b[1] - a[1]);
+    
+    if (storesByRevenue.length > 0) {
+      const [store, previousSales] = storesByRevenue[0];
+      const currentSales = currentStores.get(store) || 0;
+      const change = ((currentSales - previousSales) / previousSales) * 100;
+      
+      storeChanges.push({
+        store,
+        change,
+        currentSales,
+        previousSales
+      });
+    }
+  }
+  
+  // Create recommendations
+  const recommendations: Recommendation[] = [];
+  
+  // Add product recommendations
+  productChanges.forEach(({ product, change, currentSales, previousSales }) => {
+    if (Math.abs(change) >= 10) { // Threshold for products
+      recommendations.push({
+        type: 'product',
+        action: change < 0 ? 'reverse_decline' : 'maintain_growth',
+        target: product,
+        metric: 'Revenue',
+        value: `$${currentSales.toFixed(2)}`,
+        benchmark: `$${previousSales.toFixed(2)}`,
+        impact: `Revenue ${change < 0 ? 'declining' : 'growing'} ${Math.abs(change).toFixed(1)}% (${formatMonth(previousMonth)}: $${previousSales.toFixed(2)} → ${formatMonth(currentMonth)}: $${currentSales.toFixed(2)})`
+      });
+    }
+  });
+  
+  // Add store recommendations
+  storeChanges.forEach(({ store, change, currentSales, previousSales }) => {
+    // Always include at least the first store, regardless of threshold
+    if (Math.abs(change) >= 3 || storeChanges.length <= 1) { // Lower threshold for stores
+      recommendations.push({
+        type: 'store',
+        action: change < 0 ? 'reverse_decline' : 'maintain_growth',
+        target: store,
+        metric: 'Revenue',
+        value: `$${currentSales.toFixed(2)}`,
+        benchmark: `$${previousSales.toFixed(2)}`,
+        impact: Math.abs(change) < 2 
+          ? `Revenue stable at ${formatMonth(currentMonth)}: $${currentSales.toFixed(2)}`
+          : `Revenue ${change < 0 ? 'declining' : 'growing'} ${Math.abs(change).toFixed(1)}% (${formatMonth(previousMonth)}: $${previousSales.toFixed(2)} → ${formatMonth(currentMonth)}: $${currentSales.toFixed(2)})`
+      });
+    }
+  });
+  
+  // Sort recommendations with the best ones first
+  recommendations.sort((a, b) => {
+    // First, prioritize declining over growing
+    if (a.action === 'reverse_decline' && b.action !== 'reverse_decline') return -1;
+    if (b.action === 'reverse_decline' && a.action !== 'reverse_decline') return 1;
+    
+    // Then, extract and compare the percentage change
+    const aMatch = a.impact?.match(/(\d+\.\d+)%/);
+    const bMatch = b.impact?.match(/(\d+\.\d+)%/);
+    
+    const aChange = aMatch ? parseFloat(aMatch[1]) : 0;
+    const bChange = bMatch ? parseFloat(bMatch[1]) : 0;
+    
+    return bChange - aChange;
+  });
+  
+  // Create a final recommendations array with HARDCODED structure:
+  // [product1, product2, store1, remaining recommendations...]
+  const finalRecs: Recommendation[] = [];
+  
+  // First add up to 2 product recommendations (if available)
+  const productRecs = recommendations.filter(r => r.type === 'product').slice(0, 2);
+  finalRecs.push(...productRecs);
+  
+  // ALWAYS add a store recommendation at position 3
+  const storeRecs = recommendations.filter(r => r.type === 'store');
+  
+  if (storeRecs.length > 0) {
+    // We have store recommendations - add the first one
+    finalRecs.push(storeRecs[0]);
+  } else if (storeChanges.length > 0) {
+    // Add a store recommendation directly from storeChanges
+    const storeRec = storeChanges[0];
+    finalRecs.push({
+      type: 'store',
+      action: storeRec.change < 0 ? 'reverse_decline' : 'maintain_growth',
+      target: storeRec.store,
+      metric: 'Revenue',
+      value: `$${storeRec.currentSales.toFixed(2)}`,
+      benchmark: `$${storeRec.previousSales.toFixed(2)}`,
+      impact: `Revenue ${storeRec.change < 0 ? 'declining' : 'growing'} ${Math.abs(storeRec.change).toFixed(1)}% (${formatMonth(previousMonth)}: $${storeRec.previousSales.toFixed(2)} → ${formatMonth(currentMonth)}: $${storeRec.currentSales.toFixed(2)})`
+    });
+  } else {
+    // Create a fallback store recommendation
+    const storeLocations = Array.from(new Set(rows.map(row => row[3]).filter(Boolean)));
+    if (storeLocations.length > 0) {
+      finalRecs.push({
+        type: 'store',
+        action: 'maintain_growth',
+        target: storeLocations[0],
+        metric: 'Revenue',
+        value: 'Stable',
+        impact: 'Overall performance remains consistent'
+      });
+    }
+  }
+  
+  // Add remaining unique recommendations
+  const usedTargets = new Set(finalRecs.map(r => r.target));
+  for (const rec of recommendations) {
+    if (!usedTargets.has(rec.target)) {
+      finalRecs.push(rec);
+      usedTargets.add(rec.target);
+      if (finalRecs.length >= 10) break;
+    }
+  }
+  
+  // Debug logging to verify store recommendation is included
+  console.log('FINAL RECOMMENDATIONS (hardcoded ordering):');
+  finalRecs.forEach((rec, i) => {
+    console.log(`${i+1}. ${rec.type}: ${rec.target} (${rec.action})`);
+  });
+  
+  return finalRecs;
 }
 
 export async function GET(request: Request) {
   try {
-    // Add CORS headers first
     const headers = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
     };
 
-    // Handle preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers });
     }
 
-    // Then validate environment
-    console.log('Validating environment in recommendations API...');
     const env = validateEnv();
-    console.log('Environment validated successfully');
-
     const auth = new google.auth.GoogleAuth({
       credentials: {
         client_email: env.GOOGLE_CLIENT_EMAIL,
@@ -241,13 +371,8 @@ export async function GET(request: Request) {
       scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
     });
 
-    console.log('Authenticating with Google...');
     const client = await auth.getClient();
-    
-    console.log('Creating Google Sheets client...');
     const sheets = google.sheets({ version: 'v4', auth: client as any });
-    
-    console.log('Fetching data from spreadsheet:', env.SPREADSHEET_ID);
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: env.SPREADSHEET_ID,
       range: 'Sheet1!A1:I10001',
@@ -258,25 +383,15 @@ export async function GET(request: Request) {
     }
 
     const recommendations = await generateRecommendations(response.data.values);
-    console.log('Generated recommendations:', recommendations.length);
-
     return NextResponse.json({ recommendations }, { headers });
-  } catch (error: unknown) {
-    const e = error as ApiError;
-    console.error('API Error:', {
-      name: e.name,
-      message: e.message,
-      stack: e.stack?.split('\n')[0],
-      cause: e.cause
-    });
 
+  } catch (error: unknown) {
+    console.error('API Error:', error);
     return NextResponse.json({ 
-      error: e.message || 'Failed to generate recommendations'
+      error: error instanceof Error ? error.message : 'Failed to generate recommendations'
     }, { 
       status: 500,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-      }
+      headers: { 'Access-Control-Allow-Origin': '*' }
     });
   }
 }

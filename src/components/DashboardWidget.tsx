@@ -1,5 +1,19 @@
 "use client";
 import { useState, useEffect } from 'react';
+// Let's use SVG icons directly instead of the heroicons package
+
+// Simple SVG icons directly in the component
+const CoffeeIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5V6a3.75 3.75 0 1 0-7.5 0v4.5m11.356-1.993 1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 0 1-1.12-1.243l1.264-12A1.125 1.125 0 0 1 5.513 7.5h12.974c.576 0 1.059.435 1.119 1.007ZM8.625 10.5a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm7.5 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" />
+  </svg>
+);
+
+const StoreIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 21v-7.5a.75.75 0 0 1 .75-.75h3a.75.75 0 0 1 .75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.349m-16.5 11.65V9.35m0 0a3.001 3.001 0 0 0 3.75-.615A2.993 2.993 0 0 0 9.75 9.75c.896 0 1.7-.393 2.25-1.016a2.993 2.993 0 0 0 2.25 1.016c.896 0 1.7-.393 2.25-1.016a3.001 3.001 0 0 0 3.75.614m-16.5 0a3.004 3.004 0 0 1-.621-4.72L4.318 3.44A1.5 1.5 0 0 1 5.378 3h13.243a1.5 1.5 0 0 1 1.06.44l1.19 1.189a3 3 0 0 1-.621 4.72m-13.5 8.65h3.75a.75.75 0 0 0 .75-.75V13.5a.75.75 0 0 0-.75-.75H6.75a.75.75 0 0 0-.75.75v3.75c0 .415.336.75.75.75Z" />
+  </svg>
+);
 
 // Debug logging
 console.log('DashboardWidget module initializing');
@@ -43,6 +57,36 @@ async function fetchRecommendations() {
     console.error('Failed to fetch recommendations:', error);
     throw error;
   }
+}
+
+function RecommendationCard({ recommendation }: { recommendation: any }) {
+  // Check if we actually have a recommendation
+  if (!recommendation || !recommendation.target) return null;
+
+  const isUrgent = recommendation.action === 'reverse_decline';
+  const icon = recommendation.type === 'product' 
+    ? <CoffeeIcon /> 
+    : <StoreIcon />;
+
+  return (
+    <div className={`p-4 rounded-lg border ${isUrgent ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
+      <div className="flex justify-between items-start">
+        <div className="flex items-center">
+          <div className={`p-2 rounded-full ${isUrgent ? 'bg-red-100' : 'bg-green-100'} mr-3`}>
+            {icon}
+          </div>
+          <div>
+            <h3 className="font-medium">
+              {isUrgent ? 'Urgent: ' : ''} 
+              {recommendation.type === 'product' ? 'Boost promotion for ' : 'Focus on location: '}
+              {recommendation.target}
+            </h3>
+            <p className="text-sm text-gray-600 mt-1">{recommendation.impact}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function DashboardWidget() {
@@ -108,10 +152,19 @@ export function DashboardWidget() {
           default:
             return `Product recommendation for ${rec.target}: ${rec.value}`;
         }
+      case 'store':
+        switch (rec.action) {
+          case 'maintain_growth':
+            return `Continue optimizing location ${rec.target} - ${rec.impact}`;
+          case 'reverse_decline':
+            return `Urgent: Focus on location ${rec.target} - ${rec.impact}`;
+          default:
+            return `Location recommendation for ${rec.target}: ${rec.value}`;
+        }
       case 'discount':
         return `${rec.target} promotion is driving ${rec.impact}`;
       default:
-        return '';
+        return `${rec.type}: ${rec.target} - ${rec.impact || rec.value}`;
     }
   }
 
@@ -184,42 +237,49 @@ export function DashboardWidget() {
 
       {recommendations.length > 0 ? (
         <ul className="space-y-6">
-          {recommendations.slice(0, 3).map((rec, idx) => {
-            const state = recStates.get(rec.target) || { resolved: false, chatOpen: false };
-            if (state.resolved) return null;
-            
-            return (
-              <li key={idx} className="p-6 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600">
-                <div className="flex justify-between items-start gap-4">
-                  <div className="flex-1">
-                    <div className="font-medium text-red-600 dark:text-red-400 mb-2">
-                      {formatRecommendation(rec)}
+          {recommendations
+            // Filter out resolved recommendations
+            .filter(rec => {
+              const state = recStates.get(rec.target) || { resolved: false, chatOpen: false };
+              return !state.resolved;
+            })
+            // Take the first 3 unresolved recommendations
+            .slice(0, 3)
+            .map((rec, idx) => {
+              const state = recStates.get(rec.target) || { resolved: false, chatOpen: false };
+              
+              return (
+                <li key={idx} className="p-6 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600">
+                  <div className="flex justify-between items-start gap-4">
+                    <div className="flex-1">
+                      <div className="font-medium text-red-600 dark:text-red-400 mb-2">
+                        {formatRecommendation(rec)}
+                      </div>
+                    </div>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => handleChatAbout(rec)}
+                        className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-sm hover:shadow flex items-center gap-2"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                        Get Advice
+                      </button>
+                      <button
+                        onClick={() => handleResolve(rec)}
+                        className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-sm hover:shadow flex items-center gap-2"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        Resolve
+                      </button>
                     </div>
                   </div>
-                  <div className="flex gap-3">
-                    <button
-                      onClick={() => handleChatAbout(rec)}
-                      className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-sm hover:shadow flex items-center gap-2"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                      </svg>
-                      Get Advice
-                    </button>
-                    <button
-                      onClick={() => handleResolve(rec)}
-                      className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-sm hover:shadow flex items-center gap-2"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                      Resolve
-                    </button>
-                  </div>
-                </div>
-              </li>
-            );
-          })}
+                </li>
+              );
+            })}
         </ul>
       ) : (
         <div className="text-center py-12 text-gray-500 dark:text-gray-400">

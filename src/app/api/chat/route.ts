@@ -167,6 +167,61 @@ function calculateAnswer(question: string, data: any[]): string {
   return 'Cannot calculate from available data';
 }
 
+function calculateSeasonalPerformance(data: any[]) {
+  const rows = data.slice(1); // Skip header
+  
+  // Initialize seasonal data
+  const seasonalData = {
+    Spring: { sales: 0, transactions: 0 },  // Mar-May
+    Summer: { sales: 0, transactions: 0 },  // Jun-Aug
+    Autumn: { sales: 0, transactions: 0 },  // Sep-Nov
+    Winter: { sales: 0, transactions: 0 }   // Dec-Feb
+  };
+
+  // Map months to seasons
+  const seasonMap = {
+    0: 'Winter',  // Jan
+    1: 'Winter',  // Feb
+    2: 'Spring',  // Mar
+    3: 'Spring',  // Apr
+    4: 'Spring',  // May
+    5: 'Summer',  // Jun
+    6: 'Summer',  // Jul
+    7: 'Summer',  // Aug
+    8: 'Autumn',  // Sep
+    9: 'Autumn',  // Oct
+    10: 'Autumn', // Nov
+    11: 'Winter'  // Dec
+  };
+
+  // Aggregate data by season
+  rows.forEach(row => {
+    const date = new Date(row[1]);
+    const season = seasonMap[date.getMonth() as keyof typeof seasonMap];
+    const sales = parseFloat(row[8]) || 0;
+
+    seasonalData[season].sales += sales;
+    seasonalData[season].transactions += 1;
+  });
+
+  // Calculate averages and find best season
+  let bestSeason = '';
+  let maxSales = 0;
+
+  Object.entries(seasonalData).forEach(([season, data]) => {
+    if (data.sales > maxSales) {
+      maxSales = data.sales;
+      bestSeason = season;
+    }
+  });
+
+  return {
+    seasonalData,
+    bestSeason,
+    bestSeasonSales: maxSales
+  };
+}
+
 async function loadSheetData() {
   try {
     console.log('Loading credentials from:', path.join(process.cwd(), 'credentials.json'));
@@ -325,6 +380,51 @@ async function analyzeProductData(data: any[], productName: string) {
   };
 }
 
+async function analyzeProductSales(data: any[], productName: string) {
+  const rows = data.slice(1);
+  const productRows = rows.filter(row => 
+    row[4]?.toLowerCase().includes(productName.toLowerCase())
+  );
+
+  // Group sales by month
+  const monthlySales = new Map<string, number>();
+  const monthlyTransactions = new Map<string, number>();
+
+  productRows.forEach(row => {
+    const date = new Date(row[1]);
+    const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    const amount = parseFloat(row[8]) || 0;
+
+    monthlySales.set(monthKey, (monthlySales.get(monthKey) || 0) + amount);
+    monthlyTransactions.set(monthKey, (monthlyTransactions.get(monthKey) || 0) + 1);
+  });
+
+  // Calculate growth metrics
+  const monthlyData = Array.from(monthlySales.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([month, sales]) => ({
+      month,
+      sales,
+      transactions: monthlyTransactions.get(month) || 0,
+      avgOrderValue: sales / (monthlyTransactions.get(month) || 1)
+    }));
+
+  // Calculate month-over-month growth
+  const growthData = monthlyData.map((data, i) => {
+    if (i === 0) return { ...data, growth: 0 };
+    const prevSales = monthlyData[i - 1].sales;
+    const growth = ((data.sales - prevSales) / prevSales) * 100;
+    return { ...data, growth };
+  });
+
+  return {
+    monthlyData: growthData,
+    totalSales: productRows.reduce((sum, row) => sum + (parseFloat(row[8]) || 0), 0),
+    totalTransactions: productRows.length,
+    averageOrderValue: productRows.reduce((sum, row) => sum + (parseFloat(row[8]) || 0), 0) / productRows.length
+  };
+}
+
 export async function POST(request: Request) {
   try {
     // Add CORS headers
@@ -391,50 +491,81 @@ export async function POST(request: Request) {
     console.log('Data loaded. Processing response...');
     const data = response.data.values;
 
-    // If it's about Protein Acai Bowl, analyze the data
-    if (body.question.toLowerCase().includes('protein acai bowl')) {
-      console.log('Analyzing Protein Acai Bowl data');
-      const analysis = await analyzeProductData(data, 'Protein Acai Bowl');
-      console.log('Analysis complete');
+    const questionLower = body.question.toLowerCase();
+
+    // Check if it's a seasonal question
+    if (questionLower.includes('season')) {
+      const seasonalAnalysis = calculateSeasonalPerformance(data);
       
-      const systemPrompt = `You are a retail analytics expert. Here's the current data:
+      const systemPrompt = `You are a retail analytics expert. Here's the seasonal performance data:
 
-• Best promotion "${analysis.bestPromo}" drove ${analysis.promoImpact.toFixed(1)}% of sales
-• Peak monthly sales: $${analysis.peakSales.toLocaleString()}
-• Best performance time: ${analysis.bestTiming}
-• Strong performance with ${analysis.bestCustomerType} customers
-• Recent trend: ${analysis.recentTrend > 0 ? 'Up' : 'Down'} ${Math.abs(analysis.recentTrend).toFixed(1)}%
+${Object.entries(seasonalAnalysis.seasonalData)
+  .map(([season, data]) => 
+    `${season}:
+• Total Sales: $${data.sales.toFixed(2)}
+• Total Transactions: ${data.transactions}
+• Average Order: $${(data.sales / data.transactions).toFixed(2)}`
+  ).join('\n\n')}
 
-Format your response EXACTLY like this, with clear line breaks:
+Best performing season: ${seasonalAnalysis.bestSeason} with $${seasonalAnalysis.bestSeasonSales.toFixed(2)} in sales.
 
-Based on historical data:
+Provide a detailed analysis of the seasonal patterns, focusing on the strongest and weakest seasons. Include specific numbers and percentages where relevant.`;
 
-1. Promotion Strategy\n
-   • ${analysis.bestPromo} promotion drove ${analysis.promoImpact.toFixed(1)}% of sales\n
-   • Target: Exceed peak sales of $${analysis.peakSales.toLocaleString()}\n
-   • Recommended discount: Similar to successful ${analysis.bestPromo} rate\n
+      const completion = await openaiClient.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: body.question }
+        ],
+        temperature: 0.7,
+        max_tokens: 500,
+      });
 
-2. Timing & Audience\n
-   • Best performance: ${analysis.bestTiming}\n
-   • Customer segment: ${analysis.bestCustomerType || 'Needs analysis'}\n
-   • Recent trend: ${analysis.recentTrend.toFixed(1)}% change\n
-
-3. Marketing Focus\n
-   • Focus on ${analysis.bestTiming.toLowerCase()} promotions\n
-   • Target similar demographics to current base\n
-   • Monitor promotion effectiveness weekly\n
-
-Use bullet points (•) with line breaks between sections.`;
-
-      console.log('Using product-specific prompt');
-      const chatResponse = await processWithGPT(openaiClient, systemPrompt, [], data);
-      return NextResponse.json({ answer: chatResponse }, { headers });
+      return NextResponse.json({ answer: completion.choices[0].message.content }, { headers });
     }
 
-    console.log('Processing with GPT...');
-    const chatResponse = await processWithGPT(openaiClient, body.question, body.conversation || [], data);
-    console.log('GPT response received');
+    // Check for product-specific questions
+    const productMatch = data
+      .slice(1)
+      .map(row => row[4])
+      .find(product => product && questionLower.includes(product.toLowerCase()));
 
+    if (productMatch) {
+      const analysis = await analyzeProductSales(data, productMatch);
+
+      // Create a detailed prompt with the analysis
+      const systemPrompt = `You are a retail analytics expert. Answer the question using this sales data for ${productMatch}:
+
+Monthly Performance:
+${analysis.monthlyData.map(m => 
+  `${m.month}: $${m.sales.toFixed(2)} (${m.transactions} orders, ${m.growth.toFixed(1)}% growth)`
+).join('\n')}
+
+Overall Metrics:
+• Total Sales: $${analysis.totalSales.toFixed(2)}
+• Total Orders: ${analysis.totalTransactions}
+• Average Order: $${analysis.averageOrderValue.toFixed(2)}
+
+Provide a concise but detailed answer focusing on the specific aspects asked about in the question. Include relevant numbers and trends.`;
+
+      console.log('Using product-specific prompt');
+      // Pass the original question to GPT, not the system prompt
+      const completion = await openaiClient.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: body.question }  // Pass the original question
+        ],
+        temperature: 0.7,
+        max_tokens: 500,
+      });
+
+      return NextResponse.json({ answer: completion.choices[0].message.content }, { headers });
+    }
+
+    // If no specific analysis matches, fall back to GPT
+    console.log('No specific analysis matched, falling back to GPT...');
+    const chatResponse = await processWithGPT(openaiClient, body.question, body.conversation || [], data);
     return NextResponse.json({ answer: chatResponse }, { headers });
 
   } catch (error: unknown) {
