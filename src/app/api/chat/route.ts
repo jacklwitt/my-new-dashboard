@@ -200,8 +200,8 @@ function calculateSeasonalPerformance(data: any[]) {
     const season = seasonMap[date.getMonth() as keyof typeof seasonMap];
     const sales = parseFloat(row[8]) || 0;
 
-    seasonalData[season].sales += sales;
-    seasonalData[season].transactions += 1;
+    seasonalData[season as keyof typeof seasonalData].sales += sales;
+    seasonalData[season as keyof typeof seasonalData].transactions += 1;
   });
 
   // Calculate averages and find best season
