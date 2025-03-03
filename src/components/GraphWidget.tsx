@@ -271,7 +271,27 @@ export function GraphWidget() {
                   </BarChart>
                 );
               }
-              return null;
+              
+              // Always return a valid chart as fallback instead of null
+              return (
+                <LineChart
+                  data={graphData.revenueTrend}
+                  margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" />
+                  <YAxis tickFormatter={formatCurrency} />
+                  <Tooltip formatter={(value) => formatCurrency(value as number)} />
+                  <Legend />
+                  <Line 
+                    type="monotone" 
+                    dataKey="value" 
+                    name="Revenue" 
+                    stroke="#0088FE" 
+                    activeDot={{ r: 8 }} 
+                  />
+                </LineChart>
+              );
             })()}
           </ResponsiveContainer>
         </div>
