@@ -287,7 +287,14 @@ export async function POST(request: Request) {
     }
     
     // Process product-specific data
-    const productData = {
+    const productData: {
+      name: string | null;
+      totalSales: number;
+      monthlySales: Record<string, number>;
+      locationSales: Record<string, number>;
+      timeOfDaySales: Record<string, number>;
+      dayOfWeekSales: Record<string, number>;
+    } = {
       name: productTarget,
       totalSales: 0,
       monthlySales: {},
