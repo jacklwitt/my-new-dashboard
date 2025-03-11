@@ -582,6 +582,11 @@ export async function forwardToChatGPT(question: string, conversation: any[], da
     const monthMatch = question.match(/\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{4})\b/i);
     const isTimeQuery = !!monthMatch;
     
+    // Define isImprovementQuery variable
+    const isImprovementQuery = 
+      context?.queryType === 'improvement' || 
+      /improve|better|enhance|optimize|recommendation|suggest/i.test(question);
+    
     // Get month if specified
     if (isTimeQuery) {
       const month = monthMatch[1].toLowerCase();
