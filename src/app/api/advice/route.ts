@@ -191,12 +191,16 @@ Based ONLY on this data, provide ONE specific, immediately actionable recommenda
       } else {
         throw new Error('Empty response from OpenAI');
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error with GPT-4o-mini:', error);
       
       // Check specifically for quota error
-      if (error.code === 'insufficient_quota' || 
-          (error.message && error.message.includes('quota'))) {
+      if (
+        typeof error === 'object' && 
+        error !== null && 
+        ('code' in error && error.code === 'insufficient_quota' || 
+        ('message' in error && typeof error.message === 'string' && error.message.includes('quota')))
+      ) {
         console.log('Quota exceeded - using static advice');
         
         // Return a static advice based on the data we already analyzed
@@ -424,12 +428,16 @@ Based ONLY on this data, provide ONE specific, immediately actionable recommenda
       } else {
         throw new Error('Empty response from OpenAI');
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error with GPT-4o-mini:', error);
       
       // Check specifically for quota error
-      if (error.code === 'insufficient_quota' || 
-          (error.message && error.message.includes('quota'))) {
+      if (
+        typeof error === 'object' && 
+        error !== null && 
+        ('code' in error && error.code === 'insufficient_quota' || 
+        ('message' in error && typeof error.message === 'string' && error.message.includes('quota')))
+      ) {
         console.log('Quota exceeded - using static advice');
         
         // Return a static advice based on the data we already analyzed
