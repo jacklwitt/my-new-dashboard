@@ -35,14 +35,14 @@ export function getDataMetadata(data: any[]): DataMetadata {
   const rows = data.slice(1); // Skip header row
   
   // Extract dynamic data from spreadsheet
-  const availableProducts = [...new Set(rows.map(row => row[4]))].filter(Boolean);
-  const availableLocations = [...new Set(rows.map(row => row[3]))].filter(Boolean);
+  const availableProducts = Array.from(new Set(rows.map(row => row[4]))).filter(Boolean);
+  const availableLocations = Array.from(new Set(rows.map(row => row[3]))).filter(Boolean);
   
   // Get date range
   const dates = rows.map(row => new Date(row[1])).filter(d => !isNaN(d.getTime()));
-  const months = [...new Set(dates.map(d => 
+  const months = Array.from(new Set(dates.map(d =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-  ))].sort();
+  ))).sort();
   
   // Convert months to readable format
   const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
