@@ -38,10 +38,10 @@ export async function handleGeneralQuery(question: string, conversation: any[], 
       console.log("Handling as business advice query - adding detailed analysis");
       
       // Calculate product sales trends
-      const productSales = {};
-      const monthlyTrends = {};
-      const locationSales = {};
-      const dayOfWeekSales = {};
+      const productSales: Record<string, number> = {};
+      const monthlyTrends: Record<string, number> = {};
+      const locationSales: Record<string, number> = {};
+      const dayOfWeekSales: Record<string, number> = {};
       
       rows.forEach(row => {
         const date = new Date(row[1]); // Column B is Purchase_Date
@@ -236,7 +236,6 @@ ${productAnalysis.promotions?.length > 0 ?
     const locationAnalysis: Record<string, any> = {};
     
     // Group sales by location
-    const locationSales: Record<string, number> = {};
     const locationMonthly: Record<string, Record<string, number>> = {};
     const locationProducts: Record<string, Record<string, number>> = {};
     

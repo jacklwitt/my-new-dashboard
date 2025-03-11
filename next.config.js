@@ -4,10 +4,7 @@ const nextConfig = {
   
   // This is forwarded to Vercel when deployed
   experimental: {
-    serverComponentsExternalPackages: ['puppeteer-core'],
-    serverFunctionTimeouts: {
-      '*': 60 // seconds
-    }
+    serverExternalPackages: ['canvas', 'jsdom', 'openai'],
   }
 };
 
