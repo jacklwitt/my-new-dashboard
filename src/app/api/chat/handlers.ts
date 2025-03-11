@@ -826,10 +826,17 @@ Removing these products would have minimal impact on your overall revenue while 
     Your goal is to provide insights that drive business growth.`;
     
     // Only include crucial data, not the entire analysis
-    const relevantData = {
-      question: question,
-      productFocus: context?.productFocus,
-      queryType: context?.queryType
+    const relevantData: {
+      question: string;
+      productFocus: any;
+      queryType: any;
+      productData?: any;  // Add optional properties
+      locationData?: any;
+      monthData?: any;
+    } = {
+      question,
+      productFocus: context?.productFocus || productName,
+      queryType: isImprovementQuery ? 'improvement' : 'general'
     };
     
     // Only if we're asking about a specific product, include its data
