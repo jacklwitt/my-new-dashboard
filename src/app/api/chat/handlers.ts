@@ -792,45 +792,54 @@ Removing these products would have minimal impact on your overall revenue while 
       promptPrefix = `Focus your response on actionable recommendations that would help improve business results. Base your answer only on the data we provide, not assumptions.`;
     }
     
-    // Create a comprehensive data context with our basic analysis instead of using undefined analysisData
+    // Create a comprehensive data context with our basic analysis
     const dynamicData = {
       ...metadata,
       analysis: basicAnalysis, // Use our local analysis instead of undefined analysisData
       ...context
     };
-    
+
     // Add specific prompt enhancement if provided
     const enhancedPrompt = context?.promptEnhancement ? context.promptEnhancement : '';
-    
+
     // Create a more recommendations-focused system prompt
     const systemPrompt = `${createSystemPrompt(data)}
-    
-    IMPORTANT: Base all your answers ONLY on the data provided below. Do not make assumptions about data we don't have.
-    
-    Here is our business data summary:
-    Products: ${metadata.availableProducts.length} products available
-    Locations: ${metadata.availableLocations.join(', ')}
-    Date range: ${metadata.timeRange[0]} to ${metadata.timeRange[metadata.timeRange.length-1]}
-    
-    ${promptPrefix}
-    
-    When answering:
-    1. Always include specific, actionable recommendations
-    2. Base recommendations on data patterns and trends
-    3. Focus on improving business metrics (sales, revenue, average order value)
-    4. Be concise but thorough in your advice
-    5. Format recommendations as clear bullet points with bold headings
-    
-    ${enhancedPrompt}
-    
-    Your goal is to provide insights that drive business growth.`;
-    
-    // Only include crucial data, not the entire analysis
+
+IMPORTANT: Base all your answers ONLY on the data provided below. Do not make assumptions about data we don't have.
+
+Here is our business data summary:
+Products: ${metadata.availableProducts.length} products available
+Locations: ${metadata.availableLocations.join(', ')}
+Date range: ${metadata.timeRange[0]} to ${metadata.timeRange[metadata.timeRange.length-1]}
+
+${promptPrefix}
+
+When answering:
+1. Always include specific, actionable recommendations
+2. Base recommendations on data patterns and trends
+3. Focus on improving business metrics (sales, revenue, average order value)
+4. Be concise but thorough in your advice
+5. Format recommendations as clear bullet points with bold headings
+
+${enhancedPrompt}
+
+Your goal is to provide insights that drive business growth.`;
+
+    // Extract product name from context or question
+    const productName = context?.productFocus || 
+      (isProductQuery ? metadata.availableProducts.find(p => 
+        question.toLowerCase().includes(p.toLowerCase())) : undefined);
+
+    // Extract location name
+    const locationName = isLocationQuery ? metadata.availableLocations.find(loc => 
+      question.toLowerCase().includes(loc.toLowerCase())) : undefined;
+
+    // Then initialize relevantData with the extracted productName
     const relevantData: {
       question: string;
       productFocus: any;
       queryType: any;
-      productData?: any;  // Add optional properties
+      productData?: any;
       locationData?: any;
       monthData?: any;
     } = {
@@ -841,9 +850,6 @@ Removing these products would have minimal impact on your overall revenue while 
     
     // Only if we're asking about a specific product, include its data
     if (isProductQuery) {
-      const productName = context?.productFocus || 
-        metadata.availableProducts.find(p => question.toLowerCase().includes(p.toLowerCase()));
-      
       if (productName && basicAnalysis.products[productName]) {
         relevantData.productData = basicAnalysis.products[productName];
       }
@@ -851,9 +857,6 @@ Removing these products would have minimal impact on your overall revenue while 
     
     // Only if we're asking about a specific location, include its data
     if (isLocationQuery) {
-      const locationName = metadata.availableLocations.find(loc => 
-        question.toLowerCase().includes(loc.toLowerCase()));
-      
       if (locationName && basicAnalysis.locations[locationName]) {
         relevantData.locationData = basicAnalysis.locations[locationName];
       }
