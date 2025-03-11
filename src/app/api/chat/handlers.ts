@@ -514,12 +514,12 @@ export async function forwardToChatGPT(question: string, conversation: any[], da
     
     // Create a simplified analysis for direct use in this function
     const rows = data.slice(1); // Skip header row
-    let basicAnalysis = {
+    let basicAnalysis: {
+      products: Record<string, any>;
+      locations: Record<string, any>;
+    } = {
       products: {},
-      locations: {},
-      time: {
-        monthly: {}
-      }
+      locations: {}
     };
     
     // Basic product data
