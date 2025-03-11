@@ -541,7 +541,8 @@ export async function forwardToChatGPT(question: string, conversation: any[], da
       const sales = locationRows.reduce((sum, row) => sum + (parseFloat(row[8]) || 0), 0);
       
       // Process monthly sales for each location
-      const locationMonthly = {};
+      const locationMonthly: Record<string, {month: string, sales: number}> = {};
+      
       locationRows.forEach(row => {
         const date = new Date(row[1]);
         const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
