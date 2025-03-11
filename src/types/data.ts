@@ -27,4 +27,67 @@ export type Analysis = {
   bestTiming: string;
   bestCustomerType: string;
   recentTrend: number;
-}; 
+};
+
+// Data structure interfaces
+
+export interface ProductSales {
+  name: string;
+  sales: number;
+}
+
+export interface LocationSales {
+  location: string;
+  sales: number;
+  percentage: number;
+}
+
+export interface MonthlyTrend {
+  month: string;
+  sales: number;
+  growth: number;
+}
+
+export interface PromotionInsight {
+  code: string;
+  usageCount: number;
+  totalSales: number;
+  avgOrderValue: number;
+}
+
+export interface ProductPerformance {
+  summary: string;
+  locationInsights: string;
+  timingPatterns: string;
+  timeOfDayInsights: string;
+  dayOfWeekInsights: string;
+  promotionEffects: string | null;
+  totalSales: number;
+  avgOrderValue: number;
+  topLocations: LocationSales[];
+  monthlyTrends: MonthlyTrend[];
+  topTimeOfDay: Array<{timeSlot: string; sales: number; percentage: number}>;
+  topDaysOfWeek: Array<{day: string; sales: number; percentage: number}>;
+  promotions: PromotionInsight[];
+}
+
+export interface ProductRecommendation extends ProductPerformance {
+  topLocationStrategy: string | null;
+  growthOpportunities: string;
+  promotionStrategy: string;
+  locationOpportunities: string | null;
+}
+
+export interface TimeParameters {
+  dates: Array<{month: string; year: string}>;
+  isComparison: boolean;
+  hasYearSpecified: boolean;
+}
+
+export interface DataMetadata {
+  availableProducts: string[];
+  availableLocations: string[];
+  months: string[];
+  timeRange: string[];
+  monthNames: string[];
+} 

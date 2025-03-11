@@ -163,135 +163,54 @@ export function Chatbot({ previousQuestion: _prevQuestion }: ChatbotProps) {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    
     if (!input.trim()) return;
 
-    const userMessage: Message = { 
-      role: 'user', 
-      content: input 
-    };
+    // Add user message to conversation
+    const userMessage = { role: 'user', content: input };
+    const updatedConversation = [...messages, userMessage];
+    setMessages(updatedConversation);
     
-    setMessages(prev => [...prev, userMessage]);
+    // Clear input and scroll to bottom
     setInput('');
     setIsLoading(true);
-
+    
     try {
-      // Get product and location names for pattern matching
-      const productNames = products.map(p => p.name);
-      const locationNames = locations.map(l => l.name);
+      // Extract product focus from input
+      const productFocus = extractProductFocus(input, products);
       
-      // Create regex patterns for dynamic matching
-      const productPattern = productNames.length > 0 
-        ? new RegExp(`\\b(${productNames.join('|')})\\b`, 'i') 
-        : null;
-      
-      const locationPattern = locationNames.length > 0
-        ? new RegExp(`\\b(${locationNames.join('|')})\\b`, 'i')
-        : null;
-
-      // Extract parameters from query using compatible approach
-      const monthYearPattern = /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t)?(?:ember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{4})\b/i;
-      const comparisonPattern = /\b(vs|versus|compared to|against|individually)\b/i;
-      
-      // Extract dates using regex.exec() in a loop
-      const dates = [];
-      let dateMatch;
-      const dateRegex = new RegExp(monthYearPattern, 'gi');
-      
-      while ((dateMatch = dateRegex.exec(input)) !== null) {
-        dates.push({
-          month: dateMatch[1],
-          year: dateMatch[2]
-        });
-      }
-      
-      // Is this a comparison query?
-      const isComparison = comparisonPattern.test(input) || dates.length > 1;
-      
-      const productMatch = productPattern ? input.match(productPattern) : null;
-      const locationMatch = locationPattern ? input.match(locationPattern) : null;
-      
-      // Build query parameters
-      const queryParams: Record<string, any> = {};
-      
-      // Add comparison parameters
-      if (dates.length > 0) {
-        queryParams.dates = dates;
-        queryParams.isComparison = isComparison;
-        queryParams.displayFormat = input.includes('individually') ? 'separate' : 'combined';
-      } else {
-        // If no year specified, look for just month names
-        const monthMatch = input.match(/\b(January|February|March|April|May|June|July|August|September|October|November|December)\b/i);
-        if (monthMatch) {
-          queryParams.timeframe = 'month';
-          queryParams.month = monthMatch[1].toLowerCase();
-          // Default to current year if not specified
-          queryParams.year = '2024'; // Hardcoded for demo
-          queryParams.specific = true;
-        }
-      }
-      
-      if (productMatch) {
-        queryParams.product = productMatch[1];
-      }
-      
-      if (locationMatch) {
-        queryParams.location = locationMatch[1];
-      }
-      
-      // Determine endpoint based on query type
-      let endpoint = '/api/chat';
-      
-      if (isCalculationQuery(input)) {
-        endpoint = '/api/calculations';
-        console.log('Using calculations endpoint with params:', queryParams);
-      } else if (/improve|suggest|recommend|strategy|better|boost|factors|impacting/i.test(input)) {
-        console.log('Using advice context with chat endpoint');
-        queryParams.requestType = 'improvement';
-      }
-
-      // Make the API request
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          question: input,
-          conversation: messages,
-          includeData: true,
-          timeParameters: queryParams,
-          context: {
-            currentView: 'dashboard',
-            visibleProducts: productNames,
-            visibleLocations: locationNames,
-            requestType: queryParams.requestType,
-            productFocus: queryParams.product,
-            locationFocus: queryParams.location,
-            comparison: isComparison
-          }
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Server error (${response.status})`);
-      }
-
-      const data = await response.json();
-      
-      if (data.error) {
-        throw new Error(data.error);
-      }
-
-      const assistantMessage: Message = { 
-        role: 'assistant', 
-        content: data.answer 
+      // Build simpler context - less duplication with backend
+      const context = {
+        currentView: 'dashboard',
+        visibleProducts: products.map(p => p.name),
+        visibleLocations: locations.map(l => l.name),
+        queryType: /factors|impacting|improve|improving|enhancement|boost|increase|better|strategies?|performance issues?/i.test(input) 
+          ? 'improvement' : 'data',
+        productFocus: productFocus
       };
       
-      setMessages(prev => [...prev, assistantMessage]);
+      // Simple, unified API call for all query types
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: input,
+          conversation: updatedConversation.slice(-6), // Send last few messages for context
+          timeParameters: extractDateInfo(input),
+          context
+        })
+      });
+      
+      if (!response.ok) throw new Error('Failed to fetch chat response');
+      const data = await response.json();
+      
+      // Add assistant's response to conversation
+      setMessages([...updatedConversation, { 
+        role: 'assistant', 
+        content: data.answer 
+      }]);
     } catch (error) {
       console.error('Error in submit handler:', error);
-      const errorMessage: Message = { 
+      const errorMessage = { 
         role: 'assistant', 
         content: error instanceof Error ? error.message : 'Sorry, there was an error processing your request.' 
       };
@@ -300,6 +219,17 @@ export function Chatbot({ previousQuestion: _prevQuestion }: ChatbotProps) {
       setIsLoading(false);
     }
   };
+
+  // Add a helper function to extract product focus
+  function extractProductFocus(query: string, products: Product[]): string | null {
+    // Check if any product name appears in the query
+    for (const product of products) {
+      if (query.toLowerCase().includes(product.name.toLowerCase())) {
+        return product.name;
+      }
+    }
+    return null;
+  }
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden flex flex-col h-[650px]">

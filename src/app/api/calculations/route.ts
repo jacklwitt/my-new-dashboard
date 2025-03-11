@@ -125,12 +125,44 @@ function calculateAnswer(question: string, data: any[], conversation?: any[]): s
   return 'Cannot calculate from available data';
 }
 
-export async function POST(request: Request) {
+export async function POST(req: Request) {
+  // Make a copy of the request body for analysis
+  const clonedReq = req.clone();
+  const body = await clonedReq.json();
+  const { question } = body;
+  
+  // For "top products" and "location performance" queries, send to chat API
+  if ((/top|best|highest performing/i.test(question) && /products?/i.test(question)) ||
+      (/which|what|best|highest|top/i.test(question) && /location|store/i.test(question) && /revenue|sales|performance/i.test(question))) {
+    
+    console.log('Calculations API redirecting specialized query to chat API');
+    
+    try {
+      // Forward to chat API
+      const chatResponse = await fetch(new URL('/api/chat', req.url), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      
+      if (!chatResponse.ok) {
+        throw new Error('Failed to get response from chat API');
+      }
+      
+      // Return the chat API's response
+      const chatData = await chatResponse.json();
+      return NextResponse.json(chatData);
+    } catch (error) {
+      console.error('Error forwarding to chat API:', error);
+      // Fall through to regular calculation as backup
+    }
+  }
+  
+  // Original calculation logic continues below
   console.log('Calculations POST handler called');
   
   try {
     const env = validateEnv();
-    const body = await request.json();
     console.log('Request body:', body);
     
     const auth = new google.auth.GoogleAuth({
