@@ -273,6 +273,61 @@ export async function POST(request: Request) {
     const { data } = await fetchSpreadsheetData();
     const rows = data.slice(1); // Skip header row
     
+    // Get metadata about the data
+    const metadata = getDataMetadata(data);
+    
+    // Perform basic data analysis for all products
+    // Calculate product sales
+    const productSales: Record<string, number> = {};
+    const locationSales: Record<string, number> = {};
+    const monthlySales: Record<string, number> = {};
+    
+    // Process rows to extract insights
+    rows.forEach(row => {
+      // Extract key data
+      const date = new Date(row[1]); // Column B is Purchase_Date
+      const location = row[3]; // Column D is Store_Location
+      const product = row[4]; // Column E is Product_Name
+      const amount = parseFloat(row[8]) || 0; // Column I is Line_Total
+      
+      // Track product sales
+      if (!productSales[product]) productSales[product] = 0;
+      productSales[product] += amount;
+      
+      // Track location sales
+      if (!locationSales[location]) locationSales[location] = 0;
+      locationSales[location] += amount;
+      
+      // Track monthly sales
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      if (!monthlySales[monthKey]) monthlySales[monthKey] = 0;
+      monthlySales[monthKey] += amount;
+    });
+    
+    // Find top products
+    const topProducts = Object.entries(productSales)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 5)
+      .map(([product, sales]) => ({ product, sales }));
+    
+    // Find top locations
+    const topLocations = Object.entries(locationSales)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 5)
+      .map(([location, sales]) => ({ location, sales }));
+    
+    // Create data summary for prompt
+    const dataInsights = {
+      totalProducts: metadata.availableProducts.length,
+      totalLocations: metadata.availableLocations.length,
+      dateRange: [metadata.timeRange[0], metadata.timeRange[metadata.timeRange.length-1]],
+      topProducts,
+      topLocations,
+      monthlySalesTrend: Object.entries(monthlySales)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([month, sales]) => ({ month, sales }))
+    };
+    
     // If we have a specific product target, filter data for just that product
     let filteredRows = rows;
     if (productTarget) {
