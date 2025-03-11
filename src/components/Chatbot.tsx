@@ -2,10 +2,11 @@
 import { useState, useEffect } from 'react';
 import type { FormEvent } from 'react';
 
-type Message = {
-  role: 'user' | 'assistant' | 'system';
+// Fix the message type error
+interface Message {
+  role: 'user' | 'assistant' | 'system';  // Use literal types
   content: string;
-};
+}
 
 // Add type for props
 type ChatbotProps = {
@@ -165,8 +166,8 @@ export function Chatbot({ previousQuestion: _prevQuestion }: ChatbotProps) {
     e.preventDefault();
     if (!input.trim()) return;
 
-    // Add user message to conversation
-    const userMessage = { role: 'user', content: input };
+    // Fix message creation
+    const userMessage = { role: 'user' as const, content: input };
     const updatedConversation = [...messages, userMessage];
     setMessages(updatedConversation);
     
@@ -203,16 +204,17 @@ export function Chatbot({ previousQuestion: _prevQuestion }: ChatbotProps) {
       if (!response.ok) throw new Error('Failed to fetch chat response');
       const data = await response.json();
       
-      // Add assistant's response to conversation
-      setMessages([...updatedConversation, { 
-        role: 'assistant', 
-        content: data.answer 
+      // Fix assistant message
+      setMessages(prev => [...prev, { 
+        role: 'assistant' as const, 
+        content: data.answer || "Sorry, I couldn't process that request." 
       }]);
     } catch (error) {
       console.error('Error in submit handler:', error);
+      // Fix error message
       const errorMessage = { 
-        role: 'assistant', 
-        content: error instanceof Error ? error.message : 'Sorry, there was an error processing your request.' 
+        role: 'assistant' as const, 
+        content: "I'm sorry, I'm having trouble connecting. Please try again."
       };
       setMessages(prev => [...prev, errorMessage]);
     } finally {
