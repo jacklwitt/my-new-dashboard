@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
       let month = monthMatch[1].toLowerCase();
       
       // Convert abbreviations to full month names
-      const monthMap = {
+      const monthMap: Record<string, string> = {
         'jan': 'january', 'feb': 'february', 'mar': 'march', 'apr': 'april',
         'jun': 'june', 'jul': 'july', 'aug': 'august', 'sep': 'september', 
         'oct': 'october', 'nov': 'november', 'dec': 'december'
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
       
       // Replace abbreviation with full name if needed
       if (month in monthMap) {
-        month = monthMap[month];
+        month = monthMap[month as keyof typeof monthMap];
       }
       
       const year = monthMatch[2];
@@ -119,7 +119,7 @@ export async function POST(req: NextRequest) {
       let month = monthMatch[1].toLowerCase();
       
       // Convert abbreviations to full month names
-      const monthMap = {
+      const monthMap: Record<string, string> = {
         'jan': 'january', 'feb': 'february', 'mar': 'march', 'apr': 'april',
         'jun': 'june', 'jul': 'july', 'aug': 'august', 'sep': 'september', 
         'oct': 'october', 'nov': 'november', 'dec': 'december'
@@ -127,7 +127,7 @@ export async function POST(req: NextRequest) {
       
       // Replace abbreviation with full name if needed
       if (month in monthMap) {
-        month = monthMap[month];
+        month = monthMap[month as keyof typeof monthMap];
       }
       
       const year = monthMatch[2];
@@ -172,7 +172,7 @@ export async function POST(req: NextRequest) {
       let month = monthMatch[1].toLowerCase();
       
       // Convert abbreviations to full month names
-      const monthMap = {
+      const monthMap: Record<string, string> = {
         'jan': 'january', 'feb': 'february', 'mar': 'march', 'apr': 'april',
         'jun': 'june', 'jul': 'july', 'aug': 'august', 'sep': 'september', 
         'oct': 'october', 'nov': 'november', 'dec': 'december'
@@ -180,7 +180,7 @@ export async function POST(req: NextRequest) {
       
       // Replace abbreviation with full name if needed
       if (month in monthMap) {
-        month = monthMap[month];
+        month = monthMap[month as keyof typeof monthMap];
       }
       
       const year = monthMatch[2];
@@ -195,7 +195,7 @@ export async function POST(req: NextRequest) {
       const numProducts = numberMatch ? parseInt(numberMatch[1]) : 3;
       
       // Calculate sales for each product in this month
-      const productSales = {};
+      const productSales: Record<string, number> = {};
       
       console.log(`Analyzing sales for ${month} ${year} (month index: ${targetMonth})`);
       

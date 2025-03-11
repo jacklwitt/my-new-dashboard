@@ -125,7 +125,7 @@ ${productAnalysis.promotions?.length > 0 ?
       }
       
       // Include basic sales data for all products
-      const allProductSales = {};
+      const allProductSales: Record<string, number> = {};
       for (const { product, sales } of productSales) {
         allProductSales[product] = sales;
       }
@@ -202,8 +202,12 @@ ${productAnalysis.promotions?.length > 0 ?
     }
     
     // 3. TIME ANALYSIS
-    const timeAnalysis = {
-      monthly: {} as Record<string, number>,
+    const timeAnalysis: {
+      monthly: Record<string, number>;
+      dayOfWeek: Record<string, number>;
+      timeOfDay: Record<string, number>;
+    } = {
+      monthly: {},
       dayOfWeek: {
         'Monday': 0, 'Tuesday': 0, 'Wednesday': 0, 'Thursday': 0, 
         'Friday': 0, 'Saturday': 0, 'Sunday': 0
