@@ -517,9 +517,15 @@ export async function forwardToChatGPT(question: string, conversation: any[], da
     let basicAnalysis: {
       products: Record<string, any>;
       locations: Record<string, any>;
+      time: {
+        monthly: Record<string, number>;
+      };
     } = {
       products: {},
-      locations: {}
+      locations: {},
+      time: {
+        monthly: {}
+      }
     };
     
     // Basic product data
