@@ -20,7 +20,12 @@ export async function analyzeProductPerformance(data: any[], productName: string
       monthlyTrends: [],
       promotions: [],
       totalSales: 0,
-      avgOrderValue: 0
+      avgOrderValue: 0,
+      timeOfDayInsights: "No time of day data available.",
+      dayOfWeekInsights: "No day of week data available.",
+      promotionEffects: null,
+      topTimeOfDay: [],
+      topDaysOfWeek: []
     };
   }
   
