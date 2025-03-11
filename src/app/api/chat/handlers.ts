@@ -688,11 +688,17 @@ export async function forwardToChatGPT(question: string, conversation: any[], da
     
     // This should not be reached, but just in case
     throw lastError;
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error in ChatGPT forwarding:', error);
     
     // Provide a user-friendly response for different error types
-    if (error.message?.includes('429')) {
+    if (
+      typeof error === 'object' && 
+      error !== null && 
+      'message' in error && 
+      typeof error.message === 'string' && 
+      error.message.includes('429')
+    ) {
       return NextResponse.json({ 
         answer: "I'm currently experiencing high demand. Please try again in a few minutes or simplify your question."
       });
