@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { RecommendationDialog } from './RecommendationDialog';
 // Let's use SVG icons directly instead of the heroicons package
 
@@ -33,10 +33,7 @@ type Recommendation = {
   impact?: string;
 };
 
-type RecommendationState = {
-  resolved: boolean;
-  chatOpen: boolean;
-};
+type RecommendationState = 'default' | 'highlighted' | 'dimmed';
 
 interface RecommendationDialogProps {
   recommendation: Recommendation;
@@ -204,10 +201,7 @@ export function DashboardWidget() {
   const initializeRecState = (target: string) => {
     setRecStates(prev => {
       const newMap = new Map(prev);
-      newMap.set(target, { 
-        resolved: false, 
-        chatOpen: false 
-      });
+      newMap.set(target, 'default');
       return newMap;
     });
   };
@@ -215,11 +209,7 @@ export function DashboardWidget() {
   const handleResolve = (rec: Recommendation) => {
     setRecStates(prev => {
       const newMap = new Map(prev);
-      const currentState = prev.get(rec.target) || { resolved: false, chatOpen: false };
-      newMap.set(rec.target, { 
-        ...currentState,
-        resolved: true 
-      });
+      newMap.set(rec.target, 'highlighted');
       return newMap;
     });
   };
@@ -227,11 +217,7 @@ export function DashboardWidget() {
   const toggleChat = (target: string) => {
     setRecStates(prev => {
       const newMap = new Map(prev);
-      const currentState = prev.get(target) || { resolved: false, chatOpen: false };
-      newMap.set(target, {
-        ...currentState,
-        chatOpen: !currentState.chatOpen
-      });
+      newMap.set(target, prev.get(target) === 'highlighted' ? 'default' : 'highlighted');
       return newMap;
     });
   };
@@ -285,13 +271,13 @@ export function DashboardWidget() {
             {recommendations
               // Filter out resolved recommendations
               .filter(rec => {
-                const state = recStates.get(rec.target) || { resolved: false, chatOpen: false };
-                return !state.resolved;
+                const state = recStates.get(rec.target) || 'default';
+                return state === 'default';
               })
               // Take the first 3 unresolved recommendations
               .slice(0, 3)
               .map((rec, idx) => {
-                const state = recStates.get(rec.target) || { resolved: false, chatOpen: false };
+                const state = recStates.get(rec.target) || 'default';
                 
                 return (
                   <li key={idx} className="p-6 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600">

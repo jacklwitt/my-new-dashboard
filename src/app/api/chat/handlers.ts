@@ -11,9 +11,104 @@ const OPENAI_ENDPOINT = 'https://api.openai.com/v1/chat/completions';
 
 export async function handleGeneralQuery(question: string, conversation: any[], data: any[], context: any) {
   try {
-    // Get metadata about the data
+    console.log("Starting data processing with spreadsheet rows:", data.length);
+    
+    // Add business advice intent detection
+    const isBusinessAdviceQuery = /improve|increase|boost|grow|sales|revenue|performance|trend|strategy|recommendation|advice/i.test(question);
+    
+    // Get only essential metadata, skip complex calculations
     const metadata = getDataMetadata(data);
+    console.log("Metadata extracted successfully");
+    
+    // Keep this line for downstream functions that need it
     const rows = data.slice(1); // Skip header row
+    
+    // Create improved system prompt with data summary and business advice instruction
+    const systemPrompt = `You are a business analyst assistant with access to sales data.
+      Products: ${metadata.availableProducts.length} products 
+      Locations: ${metadata.availableLocations.join(', ')}
+      Date range: ${metadata.timeRange[0]} to ${metadata.timeRange[metadata.timeRange.length-1]}
+      
+      IMPORTANT: When answering questions about improving sales, business strategy, or recommendations, ALWAYS analyze the data and provide SPECIFIC insights based on actual trends. Give data-backed recommendations, not generic advice.
+      
+      Always provide specific insights based on this data.`;
+    
+    // Implement the detailed data analysis for business advice queries
+    if (isBusinessAdviceQuery) {
+      console.log("Handling as business advice query - adding detailed analysis");
+      
+      // Calculate product sales trends
+      const productSales = {};
+      const monthlyTrends = {};
+      const locationSales = {};
+      const dayOfWeekSales = {};
+      
+      rows.forEach(row => {
+        const date = new Date(row[1]); // Column B is Purchase_Date
+        const location = row[3]; // Column D is Store_Location
+        const product = row[4]; // Column E is Product_Name
+        const amount = parseFloat(row[8]) || 0; // Column I is Line_Total
+        
+        // Product sales
+        if (!productSales[product]) productSales[product] = 0;
+        productSales[product] += amount;
+        
+        // Monthly trends
+        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        if (!monthlyTrends[monthKey]) monthlyTrends[monthKey] = 0;
+        monthlyTrends[monthKey] += amount;
+        
+        // Location sales
+        if (!locationSales[location]) locationSales[location] = 0;
+        locationSales[location] += amount;
+        
+        // Day of week sales
+        const dayOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][date.getDay()];
+        if (!dayOfWeekSales[dayOfWeek]) dayOfWeekSales[dayOfWeek] = 0;
+        dayOfWeekSales[dayOfWeek] += amount;
+      });
+      
+      // Format data for the prompt
+      const topProducts = Object.entries(productSales)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 5)
+        .map(([product, sales]) => `${product}: $${(sales as number).toLocaleString()}`);
+      
+      const topLocations = Object.entries(locationSales)
+        .sort(([, a], [, b]) => b - a)
+        .map(([location, sales]) => `${location}: $${(sales as number).toLocaleString()}`);
+      
+      const monthlyData = Object.entries(monthlyTrends)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([month, sales]) => `${month}: $${(sales as number).toLocaleString()}`);
+      
+      const dayOfWeekData = Object.entries(dayOfWeekSales)
+        .sort(([, a], [, b]) => b - a)
+        .map(([day, sales]) => `${day}: $${(sales as number).toLocaleString()}`);
+      
+      // Update the system prompt with specific data
+      const businessDataPrompt = `You are a business analyst assistant with access to sales data.
+        
+IMPORTANT: Your responses must be SPECIFIC and DATA-DRIVEN based on the actual sales data provided below.
+
+DATA ANALYSIS FOR BUSINESS ADVICE:
+- Top 5 Products: ${topProducts.join(', ')}
+- Top Locations: ${topLocations.join(', ')}
+- Monthly Sales: ${monthlyData.join(', ')}
+- Day of Week Performance: ${dayOfWeekData.join(', ')}
+
+Based on this specific data, provide actionable business recommendations that directly address patterns and trends shown in the data. Do NOT give generic advice.
+
+USER QUESTION: "${question}"`;
+      
+      // Use this enhanced prompt for the OpenAI request
+      return await forwardToChatGPT(question, conversation, data, {
+        customSystemPrompt: businessDataPrompt
+      });
+    }
+    
+    // Log right before API call
+    console.log("About to call OpenAI API");
     
     // Check for product-specific analysis need
     if (context?.productFocus) {
@@ -89,10 +184,10 @@ ${productAnalysis.promotions?.length > 0 ?
       
       console.log('Sending detailed data-driven request to OpenAI');
       const completion = await openai.chat.completions.create({
-        model: "gpt-4",
+        model: "gpt-4o-mini",
         messages: messages as any,
-        temperature: 0.3, // Lower temperature for more factual responses
-        max_tokens: 800
+        temperature: 0.5,
+        max_tokens: 1000
       });
       
       console.log('OpenAI response received');
@@ -509,434 +604,102 @@ export async function forwardToChatGPT(question: string, conversation: any[], da
   }
   
   try {
-    // Get metadata about the data FIRST, before using it
+    console.log("Begin ChatGPT forwarding, getting metadata...");
+    // Get minimal metadata to reduce processing time
     const metadata = getDataMetadata(data);
+    console.log("Metadata extraction complete");
     
-    // Create a simplified analysis for direct use in this function
-    const rows = data.slice(1); // Skip header row
-    let basicAnalysis: {
-      products: Record<string, any>;
-      locations: Record<string, any>;
-      time: {
-        monthly: Record<string, number>;
-      };
-    } = {
-      products: {},
-      locations: {},
-      time: {
-        monthly: {}
-      }
-    };
+    // Create a better system prompt that will work with less context
+    const systemPrompt = context.customSystemPrompt || `You are a business analyst assistant helping with sales data analysis.
+      When you answer, be specific, data-driven, and concise.`;
     
-    // Basic product data
-    const productSalesMap = {};
-    metadata.availableProducts.forEach(product => {
-      const productRows = rows.filter(row => row[4] === product);
-      const sales = productRows.reduce((sum, row) => sum + (parseFloat(row[8]) || 0), 0);
-      
-      basicAnalysis.products[product] = {
-        totalSales: sales,
-        avgOrderValue: sales / (productRows.length || 1)
-      };
-    });
-    
-    // Basic location data
-    const locationSalesMap = {};
-    metadata.availableLocations.forEach(location => {
-      const locationRows = rows.filter(row => row[3] === location);
-      const sales = locationRows.reduce((sum, row) => sum + (parseFloat(row[8]) || 0), 0);
-      
-      // Process monthly sales for each location
-      const locationMonthly: Record<string, {month: string, sales: number}> = {};
-      
-      locationRows.forEach(row => {
-        const date = new Date(row[1]);
-        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
-                           'July', 'August', 'September', 'October', 'November', 'December'];
-        const readableMonth = `${monthNames[date.getMonth()]} ${date.getFullYear()}`;
-        
-        if (!locationMonthly[monthKey]) {
-          locationMonthly[monthKey] = {
-            month: readableMonth,
-            sales: 0
-          };
-        }
-        
-        locationMonthly[monthKey].sales += parseFloat(row[8]) || 0;
-      });
-      
-      basicAnalysis.locations[location] = {
-        totalSales: sales,
-        monthlySales: Object.values(locationMonthly)
-      };
-    });
-    
-    // Extract key information from the question
-    const isProductQuery = context?.productFocus || 
-      metadata.availableProducts.some(p => question.toLowerCase().includes(p.toLowerCase()));
-    
-    const isLocationQuery = metadata.availableLocations.some(loc => 
-      question.toLowerCase().includes(loc.toLowerCase()));
-    
-    const monthMatch = question.match(/\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{4})\b/i);
-    const isTimeQuery = !!monthMatch;
-    
-    // Define isImprovementQuery variable
-    const isImprovementQuery = 
-      context?.queryType === 'improvement' || 
-      /improve|better|enhance|optimize|recommendation|suggest/i.test(question);
-    
-    // Get month if specified
-    if (isTimeQuery) {
-      const month = monthMatch[1].toLowerCase();
-      const year = monthMatch[2];
-      
-      // Create a proper date object for the target month
-      const targetDate = new Date(`${month} 1, ${year}`);
-      const targetMonth = targetDate.getMonth();
-      const targetYear = targetDate.getFullYear();
-      
-      // 1. DIRECT HANDLER FOR LOCATION + MONTH QUERIES
-      if (isLocationQuery && !isProductQuery) {
-        // Query about location in a specific month
-        const locationName = metadata.availableLocations.find(loc => 
-          question.toLowerCase().includes(loc.toLowerCase()));
-          
-        if (locationName) {
-          // Calculate sales directly from raw data for accuracy
-          let monthlySales = 0;
-          
-          // Loop through rows directly for better control
-          for (const row of rows) {
-            const rowLocation = row[3];
-            
-            // Skip non-matching locations
-            if (rowLocation !== locationName) continue;
-            
-            // Parse date correctly
-            const rowDate = new Date(row[1]);
-            const rowMonth = rowDate.getMonth(); // 0-based (Jan = 0)
-            const rowYear = rowDate.getFullYear();
-            
-            // Check exact month and year match
-            if (rowMonth === targetMonth && rowYear === targetYear) {
-              monthlySales += parseFloat(row[8]) || 0;
-            }
-          }
-          
-          // Return ONLY the direct factual answer
-          return NextResponse.json({ 
-            answer: `Sales for the ${locationName} location in ${monthMatch[1]} ${year} were $${monthlySales.toLocaleString('en-US', {minimumFractionDigits: 2})}.`
-          });
-        }
-      }
-      
-      // 2. DIRECT HANDLER FOR PRODUCT + MONTH QUERIES
-      if (isProductQuery && !isLocationQuery) {
-        // Query about product in a specific month
-        const productName = context?.productFocus || 
-          metadata.availableProducts.find(p => question.toLowerCase().includes(p.toLowerCase()));
-          
-        if (productName) {
-          // Calculate sales directly from raw data for accuracy
-          let monthlySales = 0;
-          let orderCount = 0;
-          
-          // Loop through rows directly for better control
-          for (const row of rows) {
-            const rowProduct = row[4];
-            
-            // Skip non-matching products
-            if (rowProduct !== productName) continue;
-            
-            // Parse date correctly
-            const rowDate = new Date(row[1]);
-            const rowMonth = rowDate.getMonth(); // 0-based (Jan = 0)
-            const rowYear = rowDate.getFullYear();
-            
-            // Check exact month and year match
-            if (rowMonth === targetMonth && rowYear === targetYear) {
-              monthlySales += parseFloat(row[8]) || 0;
-              orderCount++;
-            }
-          }
-          
-          // Calculate average order value
-          const avgOrderValue = orderCount > 0 ? monthlySales / orderCount : 0;
-          
-          // Return ONLY the direct factual answer
-          return NextResponse.json({ 
-            answer: `Sales for ${productName} in ${monthMatch[1]} ${year} were $${monthlySales.toLocaleString('en-US', {minimumFractionDigits: 2})}.`
-          });
-        }
-      }
-    }
-    
-    // Direct handler for "bottom X products" queries
-    if (/bottom|worst|lowest|poorest|least|worst-performing/i.test(question) && 
-        /\b\d+\b/.test(question) && 
-        /products?|items?/i.test(question)) {
-      
-      try {
-        // Extract count (default to 3)
-        const countMatch = question.match(/\b(\d+)\b/);
-        const count = countMatch ? parseInt(countMatch[1]) : 3;
-        
-        // Get month if specified (default to most recent)
-        const monthKey = monthMatch ? 
-          `${monthMatch[2]}-${String(new Date(Date.parse(`${monthMatch[1]} 1, ${monthMatch[2]}`)).getMonth() + 1).padStart(2, '0')}` : 
-          Object.keys(basicAnalysis.time.monthly).sort().pop();
-        
-        // For specific month, filter products by their performance in that month
-        let productPerformances = [];
-        
-        // Get all products with their sales in the specified month
-        for (const productName of metadata.availableProducts) {
-          // Basic information from our simplified analysis
-          const basicSales = basicAnalysis.products[productName]?.totalSales || 0;
-          
-          try {
-            // Try to get detailed analysis if available (might not be for all products)
-            const details = await analyzeProductPerformance(data, productName);
-            
-            // Find the monthly data for the specified month
-            const monthData = details.monthlyTrends.find(m => {
-              // Handle both formats - "November 2024" and "2024-11"
-              return (m.month && monthKey && m.month.includes(monthKey)) || 
-                (monthMatch && m.month && m.month.toLowerCase().includes(monthMatch[1].toLowerCase()) && 
-                 m.month && m.month.includes(monthMatch[2]));
-            });
-            
-            if (monthData) {
-              productPerformances.push({
-                name: productName,
-                sales: monthData.sales,
-                growth: monthData.growth
-              });
-            } else {
-              // Fallback if we don't have monthly data
-              productPerformances.push({
-                name: productName,
-                sales: basicSales / 12, // Rough estimate
-                growth: 0
-              });
-            }
-          } catch (e) {
-            // If analysis fails, use basic sales
-            productPerformances.push({
-              name: productName,
-              sales: basicSales / 12, // Rough estimate 
-              growth: 0
-            });
-          }
-        }
-        
-        // Sort by sales (ascending)
-        productPerformances.sort((a, b) => a.sales - b.sales);
-        
-        // Take bottom 'count' products
-        const bottomProducts = productPerformances.slice(0, count);
-        
-        // Format readable month name
-        const monthName = monthMatch ? 
-          monthMatch[1] + " " + monthMatch[2] : 
-          "the most recent month";
-        
-        // Generate response
-        const answer = `Bottom ${count} products for ${monthName}:\n` + 
-          bottomProducts.map((p, i) => 
-            `${i+1}. ${p.name}: $${p.sales.toLocaleString('en-US', {minimumFractionDigits: 2})}`
-          ).join('\n');
-        
-        return NextResponse.json({ answer });
-      } catch (error) {
-        console.error("Error handling bottom products query:", error);
-        // Fall through to regular processing if direct handling fails
-      }
-    }
-    
-    // 2. Special handling for product cutting questions
-    if (/which|what|list|identify/.test(question) && 
-        /products?|items?|offerings?/.test(question) && 
-        /cut|remove|eliminate|discontinue|stop|worst/.test(question)) {
-      
-      // Sort products by sales (ascending) to find worst performers
-      const worstPerformers = Object.entries(basicAnalysis.products)
-        .map(([name, data]) => ({
-          name,
-          sales: (data as any).totalSales,
-          avgOrderValue: (data as any).avgOrderValue
-        }))
-        .sort((a, b) => a.sales - b.sales)
-        .slice(0, 5);
-      
-      // Generate direct answer for worst performers
-      const answer = `Based on sales data, the 3 products with the lowest performance are:
-
-1. **${worstPerformers[0].name}** - Total sales: $${worstPerformers[0].sales.toLocaleString('en-US', {minimumFractionDigits: 2})}, Average order: $${worstPerformers[0].avgOrderValue.toLocaleString('en-US', {minimumFractionDigits: 2})}
-   This product has the lowest overall sales volume, making it a prime candidate for removal to optimize your product lineup.
-
-2. **${worstPerformers[1].name}** - Total sales: $${worstPerformers[1].sales.toLocaleString('en-US', {minimumFractionDigits: 2})}, Average order: $${worstPerformers[1].avgOrderValue.toLocaleString('en-US', {minimumFractionDigits: 2})}
-   With consistently low performance, this product is utilizing menu space and inventory resources that could be better allocated to higher-performing options.
-
-3. **${worstPerformers[2].name}** - Total sales: $${worstPerformers[2].sales.toLocaleString('en-US', {minimumFractionDigits: 2})}, Average order: $${worstPerformers[2].avgOrderValue.toLocaleString('en-US', {minimumFractionDigits: 2})}
-   This product has failed to generate significant revenue and could be replaced with a new offering that better aligns with customer preferences.
-
-Removing these products would have minimal impact on your overall revenue while freeing up operational resources and menu space for better-performing items or new product innovations.`;
-
-      return NextResponse.json({ answer });
-    }
-    
-    // For other queries, use enhanced ChatGPT
-    // Add recommendation context if appropriate
-    let promptPrefix = '';
-    if (context?.requestType === 'strategic_recommendations') {
-      promptPrefix = `You're providing strategic business recommendations based on our sales data. Focus on actionable advice that will improve business metrics. Be specific and data-driven. Do not make up data we don't have.`;
-    } else if (/top|performance|sales|revenue|growth|improve|recommend|suggest/i.test(question)) {
-      promptPrefix = `Focus your response on actionable recommendations that would help improve business results. Base your answer only on the data we provide, not assumptions.`;
-    }
-    
-    // Create a comprehensive data context with our basic analysis
-    const dynamicData = {
-      ...metadata,
-      analysis: basicAnalysis, // Use our local analysis instead of undefined analysisData
-      ...context
-    };
-
-    // Add specific prompt enhancement if provided
-    const enhancedPrompt = context?.promptEnhancement ? context.promptEnhancement : '';
-
-    // Create a more recommendations-focused system prompt
-    const systemPrompt = `${createSystemPrompt(data)}
-
-IMPORTANT: Base all your answers ONLY on the data provided below. Do not make assumptions about data we don't have.
-
-Here is our business data summary:
-Products: ${metadata.availableProducts.length} products available
-Locations: ${metadata.availableLocations.join(', ')}
-Date range: ${metadata.timeRange[0]} to ${metadata.timeRange[metadata.timeRange.length-1]}
-
-${promptPrefix}
-
-When answering:
-1. Always include specific, actionable recommendations
-2. Base recommendations on data patterns and trends
-3. Focus on improving business metrics (sales, revenue, average order value)
-4. Be concise but thorough in your advice
-5. Format recommendations as clear bullet points with bold headings
-
-${enhancedPrompt}
-
-Your goal is to provide insights that drive business growth.`;
-
-    // Extract product name from context or question
-    const productName = context?.productFocus || 
-      (isProductQuery ? metadata.availableProducts.find(p => 
-        question.toLowerCase().includes(p.toLowerCase())) : undefined);
-
-    // Extract location name
-    const locationName = isLocationQuery ? metadata.availableLocations.find(loc => 
-      question.toLowerCase().includes(loc.toLowerCase())) : undefined;
-
-    // Then initialize relevantData with the extracted productName
-    const relevantData: {
-      question: string;
-      productFocus: any;
-      queryType: any;
-      productData?: any;
-      locationData?: any;
-      monthData?: any;
-    } = {
-      question,
-      productFocus: context?.productFocus || productName,
-      queryType: isImprovementQuery ? 'improvement' : 'general'
-    };
-    
-    // Only if we're asking about a specific product, include its data
-    if (isProductQuery) {
-      if (productName && basicAnalysis.products[productName]) {
-        relevantData.productData = basicAnalysis.products[productName];
-      }
-    }
-    
-    // Only if we're asking about a specific location, include its data
-    if (isLocationQuery) {
-      if (locationName && basicAnalysis.locations[locationName]) {
-        relevantData.locationData = basicAnalysis.locations[locationName];
-      }
-    }
-    
-    // Format messages with reduced data payload
+    // Use the question directly rather than complex JSON
     const messages = [
       { role: 'system', content: systemPrompt },
-      ...conversation.slice(-3).map((msg: any) => ({ // Only include last 3 messages
-        role: msg.role,
-        content: msg.content
-      })),
-      { role: 'user', content: JSON.stringify(relevantData) }
+      // Skip previous conversation to reduce tokens
+      { role: 'user', content: question }
     ];
     
-    // Make request to ChatGPT API with proper error handling
-    const response = await fetch(OPENAI_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: 'gpt-4',
-        messages,
-        temperature: 0.7,
-        max_tokens: 800
-      })
-    });
+    console.log("Sending simplified request to OpenAI...");
     
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      console.error('ChatGPT API error:', errorData);
-      throw new Error(`ChatGPT API error: ${errorData.error?.message || response.statusText}`);
+    // Add retry logic with exponential backoff
+    const maxRetries = 2;
+    let retryCount = 0;
+    let lastError;
+    
+    while (retryCount <= maxRetries) {
+      try {
+        // Add delay for retries to help with rate limiting
+        if (retryCount > 0) {
+          const delay = Math.pow(2, retryCount) * 1000; // Exponential backoff: 2s, 4s
+          console.log(`Retry ${retryCount}/${maxRetries}: Waiting ${delay}ms before retry...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+        
+        const response = await fetch(OPENAI_ENDPOINT, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${OPENAI_API_KEY}`
+          },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            messages,
+            temperature: 0.7,
+            max_tokens: 500
+          })
+        });
+        
+        // Special handling for rate limits
+        if (response.status === 429) {
+          console.warn("Rate limit hit (429)");
+          
+          // If we're on our last retry, provide a helpful response
+          if (retryCount === maxRetries) {
+            return NextResponse.json({ 
+              answer: "I'm currently experiencing high demand. Please try again in a few minutes or simplify your question."
+            });
+          }
+          
+          // Otherwise, continue to retry
+          retryCount++;
+          continue;
+        }
+        
+        // For other non-200 responses
+        if (!response.ok) {
+          throw new Error(`API error: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        console.log("Received response from OpenAI");
+        return NextResponse.json({ answer: data.choices[0].message.content });
+      } catch (error) {
+        console.error(`Attempt ${retryCount+1}/${maxRetries+1} failed:`, error);
+        lastError = error;
+        retryCount++;
+        
+        // If it's our last retry, throw the error to be caught by the outer try/catch
+        if (retryCount > maxRetries) {
+          throw error;
+        }
+      }
     }
     
-    const responseData = await response.json();
-    console.log('ChatGPT response received');
-    return NextResponse.json({ answer: responseData.choices[0].message.content });
-    
+    // This should not be reached, but just in case
+    throw lastError;
   } catch (error) {
-    console.error('Error in ChatGPT request:', error);
+    console.error('Error in ChatGPT forwarding:', error);
     
-    // Make sure we have metadata here too
-    try {
-      const metadata = getDataMetadata(data);
-      // Provide more helpful error response based on the type of query
-      const isProductQuery = metadata.availableProducts.some(p => 
-        question.toLowerCase().includes(p.toLowerCase()));
-      const isLocationQuery = metadata.availableLocations.some(loc => 
-        question.toLowerCase().includes(loc.toLowerCase()));
-      
-      if (isProductQuery && isLocationQuery) {
-        return NextResponse.json({ 
-          answer: "I found both product and location information in your question, but couldn't process the data fully. Could you try simplifying your question?" 
-        });
-      } else if (isProductQuery) {
-        const product = metadata.availableProducts.find(p => 
-          question.toLowerCase().includes(p.toLowerCase()));
-        return NextResponse.json({ 
-          answer: `I found data for "${product}" but encountered an error processing your specific request. Try asking about overall sales, monthly trends, or location performance for this product.` 
-        });
-      } else if (isLocationQuery) {
-        const location = metadata.availableLocations.find(loc => 
-          question.toLowerCase().includes(loc.toLowerCase()));
-        return NextResponse.json({ 
-          answer: `I found data for the "${location}" location but encountered an error processing your specific request. Try asking about overall sales, product performance, or monthly trends for this location.` 
-        });
-      }
-    } catch (metadataError) {
-      console.error('Error accessing metadata:', metadataError);
+    // Provide a user-friendly response for different error types
+    if (error.message?.includes('429')) {
+      return NextResponse.json({ 
+        answer: "I'm currently experiencing high demand. Please try again in a few minutes or simplify your question."
+      });
     }
     
     return NextResponse.json({ 
-      answer: "I'm having trouble processing your request. Please try asking in a different way or break your question into smaller parts." 
+      answer: "I'm having trouble analyzing the data right now. Please try again with a more specific question about products, locations, or time periods."
     });
   }
 } 
