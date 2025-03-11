@@ -698,9 +698,9 @@ export async function forwardToChatGPT(question: string, conversation: any[], da
             // Find the monthly data for the specified month
             const monthData = details.monthlyTrends.find(m => {
               // Handle both formats - "November 2024" and "2024-11"
-              return (m.month && m.month.includes(monthKey)) || 
+              return (m.month && monthKey && m.month.includes(monthKey)) || 
                 (monthMatch && m.month && m.month.toLowerCase().includes(monthMatch[1].toLowerCase()) && 
-                 m.month.includes(monthMatch[2]));
+                 m.month && m.month.includes(monthMatch[2]));
             });
             
             if (monthData) {
