@@ -1,6 +1,17 @@
 import { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
-import { Recommendation } from '@/lib/recommendations';
+
+// Define the Recommendation type inline
+export interface Recommendation {
+  id: string;
+  type: 'product' | 'location' | 'promotion' | 'general';
+  target: string;
+  title: string;
+  description: string;
+  impact: string;
+  impactLevel: 'high' | 'medium' | 'low';
+  createdAt: string;
+}
 
 // Add the missing DialogProps interface
 interface DialogProps {
