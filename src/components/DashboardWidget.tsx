@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect } from 'react';
 import { RecommendationDialog } from './RecommendationDialog';
+import { Recommendation as DialogRecommendation } from './RecommendationDialog';
 // Let's use SVG icons directly instead of the heroicons package
 
 // Simple SVG icons directly in the component
@@ -118,6 +119,19 @@ const extractValuesFromImpact = (impact?: string) => {
     return { previousValue: null, currentValue: null };
   }
 };
+
+function createCompleteRecommendation(rec: any): DialogRecommendation {
+  return {
+    id: `rec_${Date.now()}`,
+    type: rec.type || 'product',
+    target: rec.target || 'Unknown',
+    title: `${rec.target || 'Product'} Recommendation`,
+    description: `Recommendation for ${rec.target || 'product'}`,
+    impact: rec.impact || 'Improve sales performance',
+    impactLevel: 'medium' as const,
+    createdAt: new Date().toISOString()
+  };
+}
 
 export function DashboardWidget() {
   console.log('DashboardWidget component rendering');
@@ -348,8 +362,8 @@ export function DashboardWidget() {
       </div>
 
       {selectedRec && (
-        <RecommendationDialog 
-          recommendation={selectedRec}
+        <RecommendationDialog
+          recommendation={createCompleteRecommendation(selectedRec)}
           onClose={() => setSelectedRec(null)}
         />
       )}
