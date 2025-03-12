@@ -1,35 +1,39 @@
-import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
-// Store timestamps of recent requests
-const apiCalls = new Map<string, number[]>();
-const RATE_LIMIT = 10; // calls
-const RATE_WINDOW = 1000 * 60 * 60; // 1 hour
+// Store recent API calls to implement rate limiting
+const recentApiCalls: Map<string, number[]> = new Map();
 
-export function middleware(request: NextRequest) {
-  // Only apply to OpenAI API routes
+// Configuration
+const MAX_CALLS_PER_MINUTE = 10;
+
+export function rateLimit(request: NextRequest) {
+  // Only apply rate limiting to API routes that are expensive
   if (request.nextUrl.pathname.startsWith('/api/advice') || 
       request.nextUrl.pathname.startsWith('/api/chat')) {
     
-    const ip = request.ip || 'anonymous';
+    // Get client IP using headers - Next.js 15 compatible approach
+    const forwardedFor = request.headers.get('x-forwarded-for');
+    const ip = forwardedFor ? forwardedFor.split(',')[0].trim() : 'anonymous';
     const now = Date.now();
     
     // Get recent calls and filter out old ones
-    const recentCalls = (apiCalls.get(ip) || [])
-      .filter(timestamp => now - timestamp < RATE_WINDOW);
-    
-    // Check if rate limit exceeded
-    if (recentCalls.length >= RATE_LIMIT) {
-      return NextResponse.json(
-        { error: 'Rate limit exceeded. Please try again later.' },
-        { status: 429 }
-      );
-    }
+    const recentCalls = (recentApiCalls.get(ip) || [])
+      .filter(timestamp => now - timestamp < 60000); // Keep calls from last minute
     
     // Add current call
     recentCalls.push(now);
-    apiCalls.set(ip, recentCalls);
+    recentApiCalls.set(ip, recentCalls);
+    
+    // Check if rate limit exceeded
+    if (recentCalls.length > MAX_CALLS_PER_MINUTE) {
+      console.log(`Rate limit exceeded for ${ip}: ${recentCalls.length} calls in the last minute`);
+      return NextResponse.json(
+        { error: 'Too many requests, please try again later.' },
+        { status: 429 }
+      );
+    }
   }
   
+  // Continue with the request
   return NextResponse.next();
 } 
