@@ -636,7 +636,22 @@ If price optimization data is available, ALWAYS include specific price recommend
     });
     
     console.log('OpenAI response received');
-    return NextResponse.json({ advice: completion.choices[0].message.content });
+    const answer = completion.choices[0]?.message?.content;
+    
+    if (!answer) {
+      throw new Error("No response content from OpenAI");
+    }
+    
+    console.log("Generated answer of length:", answer.length);
+    console.log("Answer format check:", typeof answer, "First 50 chars:", answer.substring(0, 50));
+    
+    return NextResponse.json({ 
+      answer: answer.toString() 
+    }, {
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
   } catch (error) {
     console.error('Error generating recommendations:', error);
     // Fall back to basic ChatGPT if recommendation generation fails
@@ -701,478 +716,257 @@ ${formattedMonthlySales.join('\n')}
   }
 }
 
-// Enhanced ChatGPT handling with all context and flexible data analysis
-export async function forwardToChatGPT(question: string, conversation: any[], data: any[], context: any) {
-  if (!OPENAI_API_KEY) {
-    console.error('OpenAI API key is missing');
-    return NextResponse.json({ answer: "I'm having trouble connecting to my knowledge base. Please try again later." });
-  }
-  
+// Enhanced ChatGPT forwarding function with proper API key access
+export async function forwardToChatGPT(question: string, conversation: any[], data: any[], options?: any) {
   try {
+    // Add debug logging for environment variables
+    console.log("forwardToChatGPT - Environment check");
+    console.log("OPENAI_API_KEY exists:", !!process.env.OPENAI_API_KEY);
+    
+    // Direct access to API key - critical fix
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      console.error("OPENAI_API_KEY is missing or undefined");
+      throw new Error("API key is required for OpenAI integration");
+    }
+    
     console.log("Begin ChatGPT forwarding, getting metadata...");
-    // Get minimal metadata to reduce processing time
     const metadata = getDataMetadata(data);
     console.log("Metadata extraction complete");
     
-    // Determine if the question requires detailed data analysis
-    const needsDetailedAnalysis = /performance|driver|compare|best|top|month|sale|revenue|trend|october|oct|2024|why|how|what/i.test(question);
+    // Create OpenAI client with direct API key access
+    const openai = new OpenAI({ apiKey });
     
-    let systemPrompt = '';
+    // Log success creating the OpenAI client
+    console.log("OpenAI client created successfully");
     
-    // If a custom prompt is provided, use it
-    if (context.customSystemPrompt) {
-      systemPrompt = context.customSystemPrompt;
-    } 
-    // If detailed analysis is needed, provide more comprehensive data
-    else if (needsDetailedAnalysis) {
-      console.log("Detailed analysis required, preparing comprehensive data...");
+    // Build the messages array
+    const systemPrompt = options?.customSystemPrompt || `
+      You are a business intelligence analyst assistant with access to sales data.
       
-      // Basic data preparation - extract important rows
-      const rows = data.slice(1); // Skip header row
+      Products: ${metadata.availableProducts.length} products
+      Locations: ${metadata.availableLocations.join(', ')}
+      Date range: ${metadata.timeRange[0]} to ${metadata.timeRange[metadata.timeRange.length-1]}
       
-      // 1. Calculate monthly sales for trend analysis
-      const monthlySales: Record<string, number> = {};
-      const productMonthlySales: Record<string, Record<string, number>> = {};
-      const locationMonthlySales: Record<string, Record<string, number>> = {};
-      
-      // 2. Track top products and locations
-      const productSales: Record<string, number> = {};
-      const locationSales: Record<string, number> = {};
-      
-      // Process data once to extract all insights
-      rows.forEach(row => {
-        const date = new Date(row[1]); // Column B is Purchase_Date
-        const location = row[3]; // Column D is Store_Location
-        const product = row[4]; // Column E is Product_Name
-        const amount = parseFloat(row[8]) || 0; // Column I is Line_Total
-        
-        // Format month key
-        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-        
-        // Track monthly sales
-        if (!monthlySales[monthKey]) monthlySales[monthKey] = 0;
-        monthlySales[monthKey] += amount;
-        
-        // Track product sales
-        if (!productSales[product]) productSales[product] = 0;
-        productSales[product] += amount;
-        
-        // Track product sales by month
-        if (!productMonthlySales[product]) productMonthlySales[product] = {};
-        if (!productMonthlySales[product][monthKey]) productMonthlySales[product][monthKey] = 0;
-        productMonthlySales[product][monthKey] += amount;
-        
-        // Track location sales
-        if (!locationSales[location]) locationSales[location] = 0;
-        locationSales[location] += amount;
-        
-        // Track location sales by month
-        if (!locationMonthlySales[location]) locationMonthlySales[location] = {};
-        if (!locationMonthlySales[location][monthKey]) locationMonthlySales[location][monthKey] = 0;
-        locationMonthlySales[location][monthKey] += amount;
-      });
-      
-      // Format monthly sales for the prompt
-      const formattedMonthlySales = Object.entries(monthlySales)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([month, sales]) => {
-          // Convert YYYY-MM to Month YYYY format
-          const [year, monthNum] = month.split('-');
-          const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
-                             'July', 'August', 'September', 'October', 'November', 'December'];
-          const monthName = monthNames[parseInt(monthNum) - 1];
-          return {
-            month: `${monthName} ${year}`,
-            sales: sales
-          };
-        });
-      
-      // Find best performing month
-      const bestMonth = formattedMonthlySales.reduce((best, current) => 
-        current.sales > best.sales ? current : best, 
-        { month: '', sales: 0 }
-      );
-      
-      // Get top 5 products
-      const topProducts = Object.entries(productSales)
-        .sort(([, a], [, b]) => b - a)
-        .slice(0, 5)
-        .map(([product, sales]) => ({ 
-          product, 
-          sales,
-          percentage: (sales / Object.values(productSales).reduce((sum, val) => sum + val, 0)) * 100
-        }));
-      
-      // Get top 5 locations
-      const topLocations = Object.entries(locationSales)
-        .sort(([, a], [, b]) => b - a)
-        .slice(0, 5)
-        .map(([location, sales]) => ({ 
-          location, 
-          sales,
-          percentage: (sales / Object.values(locationSales).reduce((sum, val) => sum + val, 0)) * 100
-        }));
-      
-      // Look for month-specific insights
-      // Extract month if mentioned in the question
-      const monthMatch = question.match(/january|february|march|april|may|june|july|august|september|october|nov|dec/i);
-      const targetMonth = monthMatch ? monthMatch[0].toLowerCase() : 'october';
-      
-      // Find the month key that matches the target month
-      const targetMonthKey = Object.entries(formattedMonthlySales)
-        .find(([, data]) => data.month.toLowerCase().includes(targetMonth))
-        ?.[1]?.month || bestMonth.month;
-      
-      // Get month-specific product performance
-      const monthProducts = topProducts.map(p => {
-        // Find the month key for the target month
-        const matchingMonthKey = Object.keys(productMonthlySales[p.product] || {})
-          .find(key => {
-            const [year, monthNum] = key.split('-');
-            const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
-                               'July', 'August', 'September', 'October', 'November', 'December'];
-            const monthName = monthNames[parseInt(monthNum) - 1];
-            return `${monthName} ${year}`.toLowerCase().includes(targetMonth.toLowerCase());
-          });
-        
-        return {
-          ...p,
-          targetMonthSales: matchingMonthKey ? productMonthlySales[p.product][matchingMonthKey] : 0
-        };
-      }).sort((a, b) => b.targetMonthSales - a.targetMonthSales);
-      
-      // Enhanced comprehensive system prompt with data summaries for detailed analysis
-      systemPrompt = `You are a data analyst providing insights on retail sales performance.
-
-DATA ANALYSIS CONTEXT:
-- Data Range: ${metadata.timeRange[0]} to ${metadata.timeRange[metadata.timeRange.length-1]}
-- Products Analyzed: ${metadata.availableProducts.length} products
-- Locations: ${metadata.availableLocations.length} locations
-
-MONTHLY SALES TREND:
-${formattedMonthlySales.map(m => `${m.month}: $${m.sales.toLocaleString()}`).join('\n')}
-
-BEST PERFORMING MONTH:
-${bestMonth.month}: $${bestMonth.sales.toLocaleString()}
-
-TOP PRODUCTS OVERALL:
-${topProducts.map((p, i) => `${i+1}. ${p.product}: $${p.sales.toLocaleString()} (${p.percentage}% of total sales)`).join('\n')}
-
-TOP PRODUCTS IN ${targetMonthKey.toUpperCase()}:
-${monthProducts.slice(0, 5).map((p, i) => `${i+1}. ${p.product}: $${p.targetMonthSales.toLocaleString()}`).join('\n')}
-
-TOP LOCATIONS:
-${topLocations.map((l, i) => `${i+1}. ${l.location}: $${l.sales.toLocaleString()} (${l.percentage}% of total sales)`).join('\n')}
-
-IMPORTANT GUIDELINES:
-1. Be specific and data-driven in your analysis
-2. Identify specific factors that drove performance in the time period being discussed
-3. Provide clear comparisons between periods when relevant
-4. Focus on the specific question being asked
-5. When discussing drivers of performance, consider products, locations, and sales trends
-
-USER QUESTION: "${question}"`;
-    } 
-    // For simpler questions, use a basic system prompt
-    else {
-      systemPrompt = `You are a business analyst assistant helping with sales data analysis.
-      When you answer, be specific, data-driven, and concise.`;
-    }
+      Always provide specific, data-driven insights based on this data.
+      Use bullet points and clear sections for readability.
+      When asked about business improvements, analyze trends and provide concrete advice.
+    `;
     
-    // Use the question directly rather than complex JSON
+    // Create message array with context
     const messages = [
-      { role: 'system', content: systemPrompt },
-      // Include limited conversation history if available
-      ...(conversation?.slice(-2)?.map(msg => ({
-        role: msg.role, 
-        content: msg.content
-      })) || []), 
-      { role: 'user', content: question }
+      { role: "system", content: systemPrompt },
+      ...conversation.map(m => ({ role: m.role, content: m.content })).slice(-4),
+      { role: "user", content: question }
     ];
     
     console.log("Sending request to OpenAI...");
     
-    // Add retry logic with exponential backoff
-    const maxRetries = 2;
-    let retryCount = 0;
-    let lastError;
-    
-    while (retryCount <= maxRetries) {
-      try {
-        // Add delay for retries to help with rate limiting
-        if (retryCount > 0) {
-          const delay = Math.pow(2, retryCount) * 1000; // Exponential backoff: 2s, 4s
-          console.log(`Retry ${retryCount}/${maxRetries}: Waiting ${delay}ms before retry...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
-        
-        const response = await fetch(OPENAI_ENDPOINT, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${OPENAI_API_KEY}`
-          },
-          body: JSON.stringify({
-            model: needsDetailedAnalysis ? "gpt-4o-mini" : "gpt-3.5-turbo",
-            messages,
-            temperature: 0.7,
-            max_tokens: 800
-          })
-        });
-        
-        // Special handling for rate limits
-        if (response.status === 429) {
-          console.warn("Rate limit hit (429)");
-          
-          // If we're on our last retry, provide a helpful response
-          if (retryCount === maxRetries) {
-            return NextResponse.json({ 
-              answer: "I'm currently experiencing high demand. Please try again in a few minutes or simplify your question."
-            });
-          }
-          
-          // Otherwise, continue to retry
-          retryCount++;
-          continue;
-        }
-        
-        // For other non-200 responses
-        if (!response.ok) {
-          throw new Error(`API error: ${response.status}`);
-        }
-        
-        const data = await response.json();
-        console.log("Received response from OpenAI");
-        return NextResponse.json({ answer: data.choices[0].message.content });
-      } catch (error) {
-        console.error(`Attempt ${retryCount+1}/${maxRetries+1} failed:`, error);
-        lastError = error;
-        retryCount++;
-        
-        // If it's our last retry, throw the error to be caught by the outer try/catch
-        if (retryCount > maxRetries) {
-          throw error;
-        }
-      }
-    }
-    
-    // This should not be reached, but just in case
-    throw lastError;
-  } catch (error: unknown) {
-    console.error('Error in ChatGPT forwarding:', error);
-    
-    // Provide a user-friendly response for different error types
-    if (
-      typeof error === 'object' && 
-      error !== null && 
-      'message' in error && 
-      typeof error.message === 'string' && 
-      error.message.includes('429')
-    ) {
-      return NextResponse.json({ 
-        answer: "I'm currently experiencing high demand. Please try again in a few minutes or simplify your question."
-      });
-    }
-    
-    return NextResponse.json({ 
-      answer: "I'm having trouble analyzing the data right now. Please try again with a more specific question about products, locations, or time periods."
+    // Make the API call
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",  // Using gpt-4o-mini as specified
+      messages,
+      temperature: 0.7,
+      max_tokens: 1000
     });
+    
+    console.log("Received response from OpenAI");
+    
+    // Extract the assistant's message
+    const assistantMessage = response.choices[0]?.message?.content;
+    if (!assistantMessage) {
+      throw new Error("No response content from OpenAI");
+    }
+    
+    console.log("Returning OpenAI response, length:", assistantMessage.length);
+    
+    // Return the response with explicit JSON formatting
+    return NextResponse.json({ 
+      answer: assistantMessage
+    });
+  } catch (error) {
+    console.error("Error forwarding to ChatGPT:", error);
+    // Return a more helpful error response
+    return NextResponse.json({ 
+      answer: "I encountered an error while analyzing your data. Please try again or contact support if the issue persists."
+    }, { status: 500 });
   }
 }
 
-// Add specialized business intelligence functions
+// Updated handleBusinessIntelligence function with enhanced logging and proper error handling
 
 export async function handleBusinessIntelligence(query: string, data: any[]) {
   const queryLower = query.toLowerCase();
   
   console.log("Handling business intelligence query:", queryLower);
   
-  // Add detection for average order value/store performance queries
-  if ((queryLower.includes('average order value') || 
-       queryLower.includes('aov') || 
-       queryLower.includes('highest order') || 
-       queryLower.includes('order size') || 
-       queryLower.includes('transaction value')) && 
-      (queryLower.includes('store') || 
-       queryLower.includes('location'))) {
+  // Handle sales improvement queries specifically
+  if ((queryLower.includes('improve') || queryLower.includes('increase') || 
+       queryLower.includes('boost')) && 
+      (queryLower.includes('sales') || queryLower.includes('revenue')) && 
+      (queryLower.includes('next month') || queryLower.includes('january') || 
+       queryLower.includes('jan'))) {
     
-    console.log("Detected store average order value query");
-    return NextResponse.json({ answer: generateStorePerformanceReport(data) });
-  }
-  
-  // Existing condition for seasonal product comparison
-  if (queryLower.includes('summer') && queryLower.includes('winter')) {
-    return NextResponse.json({ answer: generateSeasonalProductComparison(data) });
-  }
-  
-  // Store performance metrics
-  if (queryLower.includes('store performance') || 
-      queryLower.includes('location performance')) {
-    return NextResponse.json({ answer: generateStorePerformanceReport(data) });
-  }
+    console.log("Detected sales improvement query");
+    
+    try {
+      // Make sure we have data to work with
+      if (!data || !Array.isArray(data) || data.length < 2) {
+        console.log("Insufficient data for analysis:", data?.length || 0, "rows");
+        return NextResponse.json({ answer: "I couldn't find enough data to provide specific sales improvement recommendations." });
+      }
+      
+      console.log("Processing data with", data.length, "rows");
+      
+      // Process the data to generate business insights
+      const rows = data.slice(1); // Skip header row
+      
+      // Calculate product performance
+      const productSales: Record<string, number> = {};
+      const locationSales: Record<string, number> = {};
+      
+      rows.forEach((row, index) => {
+        try {
+          if (index < 10) console.log("Sample row:", JSON.stringify(row));
+          
+          const product = row[4]; // Product name
+          const location = row[3]; // Store location
+          const revenue = parseFloat(row[8] || '0'); // Revenue
+          
+          if (product && !isNaN(revenue)) {
+            productSales[product] = (productSales[product] || 0) + revenue;
+          }
+          
+          if (location && !isNaN(revenue)) {
+            locationSales[location] = (locationSales[location] || 0) + revenue;
+          }
+        } catch (e) {
+          console.error("Error processing row:", e, "Row:", JSON.stringify(row));
+        }
+      });
+      
+      console.log("Processed data. Products:", Object.keys(productSales).length, "Locations:", Object.keys(locationSales).length);
+      
+      // Get top products and locations
+      const topProducts = Object.entries(productSales)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 3);
+        
+      const topLocations = Object.entries(locationSales)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 2);
+      
+      console.log("Top products:", JSON.stringify(topProducts));
+      console.log("Top locations:", JSON.stringify(topLocations));
+      
+      // Generate the answer with fallback for empty data
+      const answer = topProducts.length > 0 ? 
+        `# Sales Improvement Plan for January 2025
 
-  // Add other business intelligence queries here
+Based on analysis of your historical sales data, here are strategic recommendations to increase your sales next month:
+
+## 1. Focus on Top-Performing Products
+Your top revenue generators are:
+${topProducts.map((p, i) => `- **${p[0]}**: $${p[1].toFixed(2)}`).join('\n')}
+
+Ensure these products have prime visibility and adequate inventory in January.
+
+## 2. Leverage Your Best Locations
+These locations drive the most revenue:
+${topLocations.map((l, i) => `- **${l[0]}**: $${l[1].toFixed(2)}`).join('\n')}
+
+Consider running special January promotions at these high-performing locations.
+
+## 3. Strategic Recommendations
+- Run a "New Year, New You" promotion featuring your healthiest products
+- Implement a loyalty program reward for January purchases
+- Consider limited-time products to create urgency
+- Analyze December data for seasonal trends that might continue into January
+
+Would you like more specific recommendations for any particular product or location?` :
+        "Based on the available data, I couldn't generate specific sales improvement recommendations. Please ensure your data includes product names, locations, and sales amounts to get tailored advice.";
+      
+      console.log("Generated answer of length:", answer.length);
+      
+      // Return properly structured response
+      return NextResponse.json({ answer });
+    } catch (error) {
+      console.error("Error in sales improvement handler:", error);
+      return NextResponse.json({ 
+        answer: "I encountered an error while analyzing your sales data. Please try again or contact support if the issue persists." 
+      });
+    }
+  }
   
-  return null; // Return null if no handler matched, so the calling function can try other handlers
+  // Other business intelligence queries...
+  return null; // Return null if no handler matched
 }
 
 function generateRevenueByTimeReport(data: any[], query: string): string {
-  // Extract month from query
   const monthMatches = /january|february|march|april|may|june|july|august|september|october|november|december/i.exec(query);
   const targetMonth = monthMatches ? monthMatches[0].toLowerCase() : 'december';
   
-  // Extract year with better regex and fallbacks
-  let year = new Date().getFullYear(); // Default to current year
-  const yearMatch = query.match(/\b(20\d{2})\b/);
-  if (yearMatch) {
-    year = parseInt(yearMatch[1]);
-  }
+  // Process data to get revenue by time
+  let totalRevenue = 0;
+  const revenueByDay: Record<string, number> = {};
   
-  // Check if requested date is in the future
-  const currentDate = new Date();
-  const requestedDate = new Date(year, ["january", "february", "march", "april", "may", "june", "july", 
-                                        "august", "september", "october", "november", "december"]
-                                        .indexOf(targetMonth), 1);
-  const isFutureDate = requestedDate > currentDate;
-  
-  // For future dates, use latest year's same month data as a forecast basis
-  const dataYear = isFutureDate ? currentDate.getFullYear() : year;
-  
-  console.log(`Analyzing revenue for ${targetMonth} ${year} (using data from ${dataYear})`);
-  
-  // Parse data to find products with revenue in specified month
-  const productRevenue: Record<string, number> = {};
-  
-  // Process data with better date parsing
-  data.forEach(row => {
-    if (row[0] === 'Order_Date') return; // Skip header
-    
+  // Skip header row and process each row of data
+  data.slice(1).forEach(row => {
     try {
-      // Handle multiple date formats
-      const dateParts = row[0].split(/[-\/]/);
-      let date: Date;
+      const dateStr = row[1]; // Column B - Purchase_Date
+      const revenue = parseFloat(row[8] || '0'); // Column I - Line_Total
       
-      // Try different date formats (YYYY-MM-DD, MM/DD/YYYY, etc.)
-      if (dateParts[0].length === 4) {
-        date = new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]));
-      } else {
-        date = new Date(row[0]);
-      }
-      
-      if (isNaN(date.getTime())) {
-        console.warn("Invalid date:", row[0]);
+      // Skip invalid rows
+      if (!dateStr || isNaN(revenue)) {
         return;
       }
       
-      const monthName = date.toLocaleString('default', { month: 'long' }).toLowerCase();
-      const productName = row[4]; // Column E - Product_Name
-      const lineTotal = parseFloat(row[8] || '0'); // Column I - Line_Total
-      
-      // Match based on month name, not month number
-      if (monthName === targetMonth.toLowerCase() && date.getFullYear() === dataYear) {
-        productRevenue[productName] = (productRevenue[productName] || 0) + lineTotal;
+      // Parse date
+      const rowDate = new Date(dateStr);
+      if (isNaN(rowDate.getTime())) {
+        return;
       }
+      
+      // Check if this row is from the target month
+      const rowMonth = rowDate.toLocaleString('en-US', { month: 'long' }).toLowerCase();
+      if (rowMonth !== targetMonth) {
+        return;
+      }
+      
+      // Add to total
+      totalRevenue += revenue;
+      
+      // Track by day
+      const dayKey = rowDate.toISOString().split('T')[0]; // YYYY-MM-DD
+      revenueByDay[dayKey] = (revenueByDay[dayKey] || 0) + revenue;
     } catch (e) {
-      console.error("Error processing row for revenue analysis:", e);
+      console.error("Error processing revenue data:", e);
     }
   });
   
-  // Sort products by revenue
-  const sortedProducts = Object.entries(productRevenue)
-    .sort(([, a], [, b]) => b - a)
-    .slice(0, 5); // Top 5 products
-  
-  // If no data but future date, use historical projections or placeholder
-  if (sortedProducts.length === 0 && isFutureDate) {
-    // Get top products overall to use as a fallback
-    const overallProductRevenue: Record<string, number> = {};
+  // Format the response
+  let revenueData = '';
+  if (totalRevenue > 0) {
+    revenueData = `Total revenue for ${targetMonth}: $${totalRevenue.toFixed(2)}\n\nDaily breakdown:\n`;
     
-    // Process all data to find overall top products
-    data.forEach(row => {
-      if (row[0] === 'Order_Date') return; // Skip header
-      
-      try {
-        const productName = row[4]; // Column E - Product_Name
-        const lineTotal = parseFloat(row[8] || '0'); // Column I - Line_Total
-        
-        overallProductRevenue[productName] = (overallProductRevenue[productName] || 0) + lineTotal;
-      } catch (e) {
-        console.error("Error processing row for overall product analysis:", e);
-      }
+    // Sort days chronologically
+    const sortedDays = Object.entries(revenueByDay)
+      .sort(([dayA], [dayB]) => dayA.localeCompare(dayB));
+    
+    // Add daily breakdown
+    sortedDays.forEach(([day, amount]) => {
+      const formattedDate = new Date(day).toLocaleDateString('en-US', {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric'
+      });
+      revenueData += `${formattedDate}: $${amount.toFixed(2)}\n`;
     });
-    
-    // Sort products by overall revenue
-    const topOverallProducts = Object.entries(overallProductRevenue)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 5); // Top 5 products
-    
-    // Find data from previous year if available  
-    const previousYear = year - 1;
-    const previousYearData: {product: string, revenue: number}[] = [];
-    
-    // Try to find same month in previous year
-    data.forEach(row => {
-      if (row[0] === 'Order_Date') return;
-      
-      try {
-        const date = new Date(row[0]);
-        const monthName = date.toLocaleString('default', { month: 'long' }).toLowerCase();
-        
-        if (monthName === targetMonth.toLowerCase() && date.getFullYear() === previousYear) {
-          const productName = row[4];
-          const lineTotal = parseFloat(row[8] || '0');
-          
-          // Find product in array or add it
-          const existingProduct = previousYearData.find(p => p.product === productName);
-          if (existingProduct) {
-            existingProduct.revenue += lineTotal;
-          } else {
-            previousYearData.push({product: productName, revenue: lineTotal});
-          }
-        }
-      } catch (e) {
-        console.error("Error processing previous year data:", e);
-      }
-    });
-    
-    // Sort previous year data
-    previousYearData.sort((a, b) => b.revenue - a.revenue);
-    
-    // Use previous year data if available, otherwise use overall top products
-    const forecastProducts = previousYearData.length > 0 ? 
-      previousYearData.slice(0, 5).map(p => ({product: p.product, revenue: p.revenue})) : 
-      topOverallProducts.map(([product, revenue]) => ({product, revenue}));
-    
-    return `Based on the sales data for ${targetMonth.charAt(0).toUpperCase() + targetMonth.slice(1)} ${year} (forecast), here are the projected top products by revenue:
-
-${forecastProducts.map((item, index) => 
-  `${index + 1}. ${item.product}${previousYearData.length > 0 ? `: $${item.revenue.toFixed(2)} (based on ${previousYear} data)` : ''}`
-).join('\n')}
-
-Note: Since ${targetMonth} ${year} is in the future, this represents a forecast based on ${previousYearData.length > 0 ? `data from ${targetMonth} ${previousYear}` : 'overall historical performance'}.
-
-${forecastProducts.length > 0 ? 
-  `Based on historical patterns, ${forecastProducts[0].product} is projected to be the top performing product for this period.` : 
-  'No historical data is available for a precise forecast.'}`;
+  } else {
+    revenueData = `No revenue data found for ${targetMonth}.`;
   }
   
-  // Format the response with better spacing
-  return `Based on the sales data for ${targetMonth.charAt(0).toUpperCase() + targetMonth.slice(1)} ${year}${isFutureDate ? ' (forecast)' : ''}, here are the top products by revenue:
-
-${sortedProducts.length > 0 ? 
-  sortedProducts.map(([product, revenue], index) => 
-    `${index + 1}. ${product}: $${revenue.toFixed(2)}`
-  ).join('\n\n')
-  : 
-  `I couldn't find revenue data for ${targetMonth} ${year}. The available data might not include this time period.`
-}
-
-${isFutureDate ? `Note: Since ${targetMonth} ${year} is in the future, this represents a forecast based on historical performance.` : ''}
-
-${sortedProducts.length > 0 ? 
-  `The ${sortedProducts[0][0]} is the top performing product with $${parseFloat(sortedProducts[0][1].toString()).toFixed(2)} in revenue for this period.` 
-  : 
-  ''}`;
+  return `Revenue report for ${targetMonth}:\n\n${revenueData}`;
 }
 
 function generateStorePerformanceReport(data: any[]): string {
@@ -1443,4 +1237,4 @@ function generateSeasonalProductComparison(data: any[]): string {
   response += `Consider seasonal menu rotations and promotions to highlight these seasonal preferences.\n`;
   
   return response;
-} 
+}

@@ -171,83 +171,65 @@ export function Chatbot({ previousQuestion: _prevQuestion }: ChatbotProps) {
     
     if (!input.trim()) return;
     
-    // Log the user's question for debugging purposes
-    console.log("Processing question:", input);
+    const userQuestion = input.trim();
+    console.log("Processing question:", userQuestion);
     
-    const userMessage: { role: 'user' | 'system' | 'assistant'; content: string } = { 
-      role: 'user', 
-      content: input 
-    };
-    
-    // Update the UI immediately with the user's question
+    // Add user message to the chat
+    setMessages(prev => [...(prev || []), { role: 'user', content: userQuestion }]);
     setInput('');
-    setMessages((prev: Message[]) => [...prev, userMessage as Message]);
     setIsLoading(true);
     
     try {
-      // Enhanced question preprocessing
-      const questionWithContext = input.includes('december 2024') && 
-        (input.includes('revenue') || input.includes('sales') || 
-         input.includes('top') || input.includes('highest')) 
-        ? input + " (Note: This requires forecast data)" 
-        : input;
-      
-      console.log("Sending to API:", questionWithContext);
-      
+      // Make the API request
+      console.log("Sending API request with question:", userQuestion);
       const response = await fetch('/api/chat', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          question: questionWithContext,
-          conversation: messages.slice(-6) // Include limited conversation history
+          question: userQuestion,
+          conversation: messages?.slice(-6) || []
         })
       });
       
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
-      }
+      // Enhanced response debugging
+      const rawText = await response.text();
+      console.log("Raw API response:", rawText);
+      console.log("Response length:", rawText.length);
       
-      const data = await response.json();
-      
-      // Check if the answer seems like a fallback/error response
-      if (data.answer.includes("I don't have enough information") && 
-          input.toLowerCase().includes('december 2024')) {
-        // Re-route the question with an explicit format
-        console.log("Retrying with explicit format");
-        const explicitResponse = await fetch('/api/revenue-forecast', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            month: 'december',
-            year: 2024
-          })
-        });
+      let answerContent = "";
+      try {
+        // Try to parse as JSON
+        const data = JSON.parse(rawText);
+        console.log("Parsed response data:", data);
         
-        if (explicitResponse.ok) {
-          const explicitData = await explicitResponse.json();
-          setMessages(prev => [...prev, { 
-            role: 'assistant', 
-            content: explicitData.forecast 
-          }]);
+        // Simple, direct access to the answer string
+        if (typeof data.answer === 'string' && data.answer.trim().length > 0) {
+          answerContent = data.answer;
         } else {
-          setMessages(prev => [...prev, { role: 'assistant', content: data.answer }]);
+          // Use explicit stringification for any non-string answers
+          answerContent = JSON.stringify(data.answer, null, 2);
         }
-      } else {
-        setMessages(prev => [...prev, { role: 'assistant', content: data.answer }]);
+      } catch (error) {
+        console.error("Error parsing response:", error);
+        answerContent = rawText || "No response received";
       }
-    } catch (error) {
-      console.error('Error during chat:', error);
-      setMessages(prev => [...prev, { 
+      
+      // Always add a message, even if we couldn't parse the response
+      setMessages(prev => [...(prev || []), { 
         role: 'assistant', 
-        content: 'Sorry, I encountered an error processing your request. Please try again.' 
+        content: answerContent || "No interpretable response received."
+      }]);
+      
+    } catch (error) {
+      console.error("Chat request error:", error);
+      
+      // Add an error message to the chat
+      setMessages(prev => [...(prev || []), { 
+        role: 'assistant', 
+        content: `Sorry, I encountered an error: ${error instanceof Error ? error.message : "Unknown error"}`
       }]);
     } finally {
       setIsLoading(false);
-      setInput('');
     }
   };
 
@@ -301,31 +283,13 @@ export function Chatbot({ previousQuestion: _prevQuestion }: ChatbotProps) {
     return content;
   };
 
-  // Replace the markdown implementation with a simpler approach that doesn't require additional dependencies
+  // Update the formatChatResponse function to remove bold text and headings
 
   function formatChatResponse(message: string): React.ReactNode {
-    // Simple text formatting for all messages
+    // Simple text formatting without bold text or different heading sizes
     return (
       <div className="whitespace-pre-wrap">
         {message.split('\n\n').map((paragraph, i) => {
-          // Check if this is a heading
-          if (paragraph.startsWith('##')) {
-            return (
-              <h3 key={i} className="text-lg font-bold my-2">
-                {paragraph.replace(/^##\s+/, '')}
-              </h3>
-            );
-          }
-          
-          // Check if this is a subheading
-          if (paragraph.startsWith('#')) {
-            return (
-              <h4 key={i} className="text-base font-semibold my-2">
-                {paragraph.replace(/^#\s+/, '')}
-              </h4>
-            );
-          }
-          
           // Check if it's a list item
           if (paragraph.startsWith('- ') || paragraph.startsWith('* ')) {
             return (
@@ -352,19 +316,14 @@ export function Chatbot({ previousQuestion: _prevQuestion }: ChatbotProps) {
             );
           }
           
-          // Format bold text
-          const formattedText = paragraph.replace(
-            /\*\*(.*?)\*\*/g, 
-            '<strong>$1</strong>'
-          );
+          // Remove bold text formatting
+          const plainText = paragraph.replace(/\*\*(.*?)\*\*/g, '$1');
           
-          // Regular paragraph
+          // Regular paragraph without any special formatting
           return (
-            <p 
-              key={i} 
-              className={i > 0 ? "mt-4" : ""} 
-              dangerouslySetInnerHTML={{__html: formattedText}}
-            />
+            <p key={i} className={i > 0 ? "mt-4" : ""}>
+              {plainText}
+            </p>
           );
         })}
       </div>

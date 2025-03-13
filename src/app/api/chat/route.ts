@@ -246,8 +246,26 @@ ${sortedLocations.map(([loc, rev], i) =>
         // Check if this is a business intelligence query
         const biResponse = await handleBusinessIntelligence(queryLower, data);
         if (biResponse) {
-          console.log("Handled as business intelligence query");
-          return biResponse;
+          console.log("Routing to business intelligence handler");
+          const responseBody = await biResponse.json();
+          
+          // Make sure we have a valid response
+          if (responseBody) {
+            console.log("BI handler returned response, type:", typeof responseBody.answer);
+            
+            // Debug the response 
+            console.log("BI response content:", 
+              typeof responseBody.answer,
+              responseBody.answer ? responseBody.answer.substring(0, 50) : "empty"
+            );
+            
+            // Return a fresh response to ensure proper formatting
+            return NextResponse.json({ 
+              answer: typeof responseBody.answer === 'string' 
+                ? responseBody.answer 
+                : JSON.stringify(responseBody.answer) || "I couldn't analyze the sales data correctly. Please try again."
+            });
+          }
         }
         
         return NextResponse.json({ answer });
@@ -541,8 +559,36 @@ ${sortedLocations.map(([loc, rev], i) =>
     const context = await extractContext(question, data);
     console.log('Context extracted:', context);
     
-    // Call the appropriate handler
-    console.log('Calling general query handler...');
+    // First check if it's a business intelligence query
+    const isBusinessQuery = queryLower.includes('improve') || 
+                            queryLower.includes('increase') || 
+                            queryLower.includes('sales') || 
+                            queryLower.includes('revenue');
+
+    if (isBusinessQuery) {
+      console.log("Routing to business intelligence handler");
+      
+      try {
+        // Call the handler and get direct response from it
+        const answer = await generateBusinessIntelligenceResponse(queryLower, data);
+        
+        console.log("Generated BI response type:", typeof answer, "Length:", answer?.length || 0);
+        console.log("First 50 chars of response:", answer.substring(0, 50));
+        
+        // COMPLETELY DIFFERENT APPROACH: Use NextResponse instead of Response
+        return NextResponse.json({ 
+          answer: answer 
+        });
+      } catch (error) {
+        console.error("Error in business intelligence handler:", error);
+        return NextResponse.json({ 
+          answer: "Error analyzing business data" 
+        }, { status: 500 });
+      }
+    }
+
+    // If we reach here, use the general query handler
+    console.log("Using general query handler");
     return await handleGeneralQuery(question, conversation, data, context);
   } catch (error) {
     console.error('Error in chat API:', error);
@@ -637,4 +683,66 @@ ${topProducts.map((item, index) =>
 ${topProducts.length > 0 ? 
   `${topProducts[0][0]} was the top performing product for the month with $${topProducts[0][1].toFixed(2)} in revenue.` : 
   'No product sales data was found for this period.'}`;
+}
+
+// Helper function that directly returns a string, not a Response object
+async function generateBusinessIntelligenceResponse(query: string, data: any[]): Promise<string> {
+  // Process the data to generate business insights
+  const rows = data.slice(1); // Skip header row
+  
+  // Calculate product performance
+  const productSales: Record<string, number> = {};
+  const locationSales: Record<string, number> = {};
+  
+  rows.forEach((row, index) => {
+    try {
+      const product = row[4]; // Product name
+      const location = row[3]; // Store location
+      const revenue = parseFloat(row[8] || '0'); // Revenue
+      
+      if (product && !isNaN(revenue)) {
+        productSales[product] = (productSales[product] || 0) + revenue;
+      }
+      
+      if (location && !isNaN(revenue)) {
+        locationSales[location] = (locationSales[location] || 0) + revenue;
+      }
+    } catch (e) {
+      console.error("Error processing row:", e);
+    }
+  });
+  
+  // Get top products and locations
+  const topProducts = Object.entries(productSales)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 3);
+    
+  const topLocations = Object.entries(locationSales)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 2);
+  
+  // Generate a plain string answer (this works correctly)
+  return `# Sales Improvement Plan
+
+Based on analysis of your historical sales data, here are strategic recommendations to increase your sales next month:
+
+## 1. Focus on Top-Performing Products
+Your top revenue generators are:
+${topProducts.map((p, i) => `- **${p[0]}**: $${p[1].toFixed(2)}`).join('\n')}
+
+Ensure these products have prime visibility and adequate inventory.
+
+## 2. Leverage Your Best Locations
+These locations drive the most revenue:
+${topLocations.map((l, i) => `- **${l[0]}**: $${l[1].toFixed(2)}`).join('\n')}
+
+Consider running special promotions at these high-performing locations.
+
+## 3. Strategic Recommendations
+- Run a "New Year, New You" promotion featuring your healthiest products
+- Implement a loyalty program reward for January purchases
+- Consider limited-time products to create urgency
+- Analyze December data for seasonal trends that might continue into January
+
+Would you like more specific recommendations for any particular product or location?`;
 } 
