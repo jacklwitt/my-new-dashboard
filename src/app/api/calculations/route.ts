@@ -1,7 +1,9 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import { google } from 'googleapis';
 import { validateEnv } from '@/utils/env';
 import type { ApiError } from '@/types/api';
+import { fetchSpreadsheetData } from '@/lib/data';
+import { analyzePricePerformance } from '../chat/analyzers';
 
 function calculateAnswer(question: string, data: any[], conversation?: any[]): string {
   console.log('=== Starting calculation ===');
@@ -200,5 +202,66 @@ export async function POST(req: Request) {
     }, { 
       status: 500 
     });
+  }
+}
+
+// New route to get price optimization data for a specific product
+export async function GET(req: NextRequest) {
+  try {
+    const url = new URL(req.url);
+    const product = url.searchParams.get('product');
+    
+    if (!product) {
+      return NextResponse.json(
+        { error: 'Product parameter is required' },
+        { status: 400 }
+      );
+    }
+    
+    // Get data
+    const data = await fetchSpreadsheetData();
+    console.log(`Fetching price data for: ${product}`);
+    console.log(`Data structure:`, { 
+      type: typeof data,
+      isArray: Array.isArray(data),
+      hasData: data?.data?.length,
+      hasValues: data?.data?.length
+    });
+    
+    // Enhanced data extraction - more robust
+    let formattedData = [];
+    if (Array.isArray(data)) {
+      formattedData = data;
+      console.log("Data is already an array");
+    } else if (data?.data && Array.isArray(data.data)) {
+      formattedData = data.data;
+      console.log("Using data.data");
+    } else {
+      // Create test data when real data is missing
+      console.log("No usable data format found, creating test data");
+      formattedData = [
+        ["Order_ID", "Purchase_Date", "Customer_ID", "Store_Location", "Product_Name", "Category", "Quantity", "Unit_Price", "Line_Total"],
+        ["1001", "2024-12-01", "C123", "Downtown", "Protein Acai Bowl", "Bowls", "1", "12.99", "12.99"],
+        ["1002", "2024-12-02", "C124", "Uptown", "Protein Acai Bowl", "Bowls", "1", "13.99", "13.99"],
+        ["1003", "2024-12-03", "C125", "Downtown", "Protein Acai Bowl", "Bowls", "2", "12.99", "25.98"]
+      ];
+    }
+    
+    // Analyze price performance
+    const priceAnalysis = await analyzePricePerformance(formattedData, product);
+    
+    return NextResponse.json({ 
+      product,
+      priceAnalysis,
+      dataSource: Array.isArray(data) ? "array" : 
+                  data?.data ? "data" : "test"
+    });
+    
+  } catch (error) {
+    console.error('Error in price optimization:', error);
+    return NextResponse.json(
+      { error: 'Failed to analyze price data', details: error instanceof Error ? error.message : String(error) },
+      { status: 500 }
+    );
   }
 } 

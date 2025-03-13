@@ -45,14 +45,15 @@ export interface LocationSales {
 export interface MonthlyTrend {
   month: string;
   sales: number;
-  growth: number;
+  growth?: number;
 }
 
 export interface PromotionInsight {
   code: string;
-  usageCount: number;
-  totalSales: number;
-  avgOrderValue: number;
+  totalRevenue: number;
+  count: number;
+  avgDiscount: number;
+  unitsPerOrder: number;
 }
 
 export interface ProductPerformance {
@@ -71,11 +72,22 @@ export interface ProductPerformance {
   promotions: PromotionInsight[];
 }
 
-export interface ProductRecommendation extends ProductPerformance {
-  topLocationStrategy: string | null;
-  growthOpportunities: string;
-  promotionStrategy: string;
-  locationOpportunities: string | null;
+export interface ProductRecommendation {
+  summary: string;
+  locationInsights: string;
+  timingPatterns: string;
+  topLocations: any[];
+  monthlyTrends: any[];
+  promotions: any[];
+  totalSales: number;
+  avgOrderValue: number;
+  timeOfDayInsights: string;
+  dayOfWeekInsights: string;
+  promotionEffects: any;
+  topTimeOfDay: any[];
+  topDaysOfWeek: any[];
+  topLocationStrategy?: string | null;
+  growthOpportunities?: string | null;
 }
 
 export interface TimeParameters {

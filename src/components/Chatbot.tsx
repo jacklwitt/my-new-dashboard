@@ -1,6 +1,10 @@
 "use client";
 import { useState, useEffect } from 'react';
 import type { FormEvent } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus, github } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 // Fix the message type error
 interface Message {
@@ -162,63 +166,88 @@ export function Chatbot({ previousQuestion: _prevQuestion }: ChatbotProps) {
     );
   }
 
-  const handleSubmit = async (e: FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim()) return;
-
-    // Fix message creation
-    const userMessage = { role: 'user' as const, content: input };
-    const updatedConversation = [...messages, userMessage];
-    setMessages(updatedConversation);
     
-    // Clear input and scroll to bottom
+    if (!input.trim()) return;
+    
+    // Log the user's question for debugging purposes
+    console.log("Processing question:", input);
+    
+    const userMessage: { role: 'user' | 'system' | 'assistant'; content: string } = { 
+      role: 'user', 
+      content: input 
+    };
+    
+    // Update the UI immediately with the user's question
     setInput('');
+    setMessages((prev: Message[]) => [...prev, userMessage as Message]);
     setIsLoading(true);
     
     try {
-      // Extract product focus from input
-      const productFocus = extractProductFocus(input, products);
+      // Enhanced question preprocessing
+      const questionWithContext = input.includes('december 2024') && 
+        (input.includes('revenue') || input.includes('sales') || 
+         input.includes('top') || input.includes('highest')) 
+        ? input + " (Note: This requires forecast data)" 
+        : input;
       
-      // Build simpler context - less duplication with backend
-      const context = {
-        currentView: 'dashboard',
-        visibleProducts: products.map(p => p.name),
-        visibleLocations: locations.map(l => l.name),
-        queryType: /factors|impacting|improve|improving|enhancement|boost|increase|better|strategies?|performance issues?/i.test(input) 
-          ? 'improvement' : 'data',
-        productFocus: productFocus
-      };
+      console.log("Sending to API:", questionWithContext);
       
-      // Simple, unified API call for all query types
       const response = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({
-          question: input,
-          conversation: updatedConversation.slice(-6), // Send last few messages for context
-          timeParameters: extractDateInfo(input),
-          context
+          question: questionWithContext,
+          conversation: messages.slice(-6) // Include limited conversation history
         })
       });
       
-      if (!response.ok) throw new Error('Failed to fetch chat response');
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+      
       const data = await response.json();
       
-      // Fix assistant message
-      setMessages(prev => [...prev, { 
-        role: 'assistant' as const, 
-        content: data.answer || "Sorry, I couldn't process that request." 
-      }]);
+      // Check if the answer seems like a fallback/error response
+      if (data.answer.includes("I don't have enough information") && 
+          input.toLowerCase().includes('december 2024')) {
+        // Re-route the question with an explicit format
+        console.log("Retrying with explicit format");
+        const explicitResponse = await fetch('/api/revenue-forecast', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            month: 'december',
+            year: 2024
+          })
+        });
+        
+        if (explicitResponse.ok) {
+          const explicitData = await explicitResponse.json();
+          setMessages(prev => [...prev, { 
+            role: 'assistant', 
+            content: explicitData.forecast 
+          }]);
+        } else {
+          setMessages(prev => [...prev, { role: 'assistant', content: data.answer }]);
+        }
+      } else {
+        setMessages(prev => [...prev, { role: 'assistant', content: data.answer }]);
+      }
     } catch (error) {
-      console.error('Error in submit handler:', error);
-      // Fix error message
-      const errorMessage = { 
-        role: 'assistant' as const, 
-        content: "I'm sorry, I'm having trouble connecting. Please try again."
-      };
-      setMessages(prev => [...prev, errorMessage]);
+      console.error('Error during chat:', error);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: 'Sorry, I encountered an error processing your request. Please try again.' 
+      }]);
     } finally {
       setIsLoading(false);
+      setInput('');
     }
   };
 
@@ -231,6 +260,115 @@ export function Chatbot({ previousQuestion: _prevQuestion }: ChatbotProps) {
       }
     }
     return null;
+  }
+
+  // Add this helper function to detect and format price data
+  const formatPriceResponse = (content: string) => {
+    if (content.includes("price analysis") || content.includes("optimal price") || 
+        content.includes("pricing recommendation")) {
+      
+      // Extract current and optimal price if they exist
+      const currentPriceMatch = content.match(/current price:?\s*\$?([\d,.]+)/i);
+      const optimalPriceMatch = content.match(/optimal price:?\s*\$?([\d,.]+)/i);
+      
+      const currentPrice = currentPriceMatch ? currentPriceMatch[1] : null;
+      const optimalPrice = optimalPriceMatch ? optimalPriceMatch[1] : null;
+      
+      // If we have both prices, create an enhanced display
+      if (currentPrice && optimalPrice) {
+        return (
+          <div>
+            <div className="mb-3">{content}</div>
+            
+            {currentPrice !== optimalPrice && (
+              <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-md border border-blue-100 dark:border-blue-800 mt-2">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-gray-700 dark:text-gray-300">Current Price:</span>
+                  <span className="font-medium">${currentPrice}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-700 dark:text-gray-300">Recommended Price:</span>
+                  <span className="font-medium text-green-600 dark:text-green-400">${optimalPrice}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      }
+    }
+    
+    // If no price data detected or couldn't parse properly, return normal content
+    return content;
+  };
+
+  // Replace the markdown implementation with a simpler approach that doesn't require additional dependencies
+
+  function formatChatResponse(message: string): React.ReactNode {
+    // Simple text formatting for all messages
+    return (
+      <div className="whitespace-pre-wrap">
+        {message.split('\n\n').map((paragraph, i) => {
+          // Check if this is a heading
+          if (paragraph.startsWith('##')) {
+            return (
+              <h3 key={i} className="text-lg font-bold my-2">
+                {paragraph.replace(/^##\s+/, '')}
+              </h3>
+            );
+          }
+          
+          // Check if this is a subheading
+          if (paragraph.startsWith('#')) {
+            return (
+              <h4 key={i} className="text-base font-semibold my-2">
+                {paragraph.replace(/^#\s+/, '')}
+              </h4>
+            );
+          }
+          
+          // Check if it's a list item
+          if (paragraph.startsWith('- ') || paragraph.startsWith('* ')) {
+            return (
+              <ul key={i} className="list-disc pl-5 my-2">
+                {paragraph.split('\n').map((item, j) => (
+                  <li key={j} className="my-1">
+                    {item.replace(/^[-*]\s+/, '')}
+                  </li>
+                ))}
+              </ul>
+            );
+          }
+          
+          // Check if it's a numbered list
+          if (/^\d+\.\s/.test(paragraph)) {
+            return (
+              <ol key={i} className="list-decimal pl-5 my-2">
+                {paragraph.split('\n').map((item, j) => (
+                  <li key={j} className="my-1">
+                    {item.replace(/^\d+\.\s+/, '')}
+                  </li>
+                ))}
+              </ol>
+            );
+          }
+          
+          // Format bold text
+          const formattedText = paragraph.replace(
+            /\*\*(.*?)\*\*/g, 
+            '<strong>$1</strong>'
+          );
+          
+          // Regular paragraph
+          return (
+            <p 
+              key={i} 
+              className={i > 0 ? "mt-4" : ""} 
+              dangerouslySetInnerHTML={{__html: formattedText}}
+            />
+          );
+        })}
+      </div>
+    );
   }
 
   return (
@@ -254,18 +392,18 @@ export function Chatbot({ previousQuestion: _prevQuestion }: ChatbotProps) {
 
       <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-gray-50 dark:bg-gray-900/50">
         {messages.map((message, index) => (
-          <div
+          <div 
             key={index}
-            className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+            className={`flex ${message.role === 'assistant' ? 'justify-start' : 'justify-end'} mb-4`}
           >
-            <div
-              className={`max-w-[80%] rounded-lg p-4 shadow-sm ${
-                message.role === 'user'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-600'
-              }`}
+            <div 
+              className={`${
+                message.role === 'assistant' 
+                  ? 'bg-gray-100 dark:bg-gray-700 mr-12' 
+                  : 'bg-blue-500 text-white ml-12'
+              } rounded-lg px-4 py-3 max-w-3xl`}
             >
-              <div className="whitespace-pre-wrap">{message.content}</div>
+              {formatChatResponse(message.content)}
             </div>
           </div>
         ))}

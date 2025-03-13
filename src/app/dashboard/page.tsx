@@ -1,7 +1,10 @@
+"use client";
+
 import React from 'react';
 import { DashboardWidget } from '@/components/DashboardWidget';
 import { GraphWidget } from '@/components/GraphWidget';
-import { Chatbot } from '@/components/Chatbot'; // Adjust path if needed
+import { Chatbot } from '@/components/Chatbot';
+import { PriceOptimizationTab } from '@/components/PriceOptimizationTab';
 
 export default function DashboardPage() {
   return (
@@ -17,23 +20,27 @@ export default function DashboardPage() {
         </div>
       </header>
       
-      {/* Main Content - Increased max width */}
+      {/* Main Content */}
       <main className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Adjusted grid for more space */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* Give recommendations more space */}
-          <section className="lg:col-span-5 flex flex-col">
+        {/* Top row - Recommendations and Sales Analytics */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          <section>
+            {/* Recommendations */}
             <DashboardWidget />
           </section>
-          
-          {/* Make analytics less vertical space */}
-          <section className="lg:col-span-7 flex flex-col">
+          <section>
+            {/* Sales Analytics */}
             <GraphWidget />
           </section>
         </div>
         
-        {/* Chat Assistant */}
-        <section className="mt-8">
+        {/* Middle row - Price Optimization */}
+        <div className="mb-6">
+          <PriceOptimizationTab />
+        </div>
+        
+        {/* Bottom row - Analytics Assistant */}
+        <section className="mb-6">
           <Chatbot />
         </section>
       </main>
