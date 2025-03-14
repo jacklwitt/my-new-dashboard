@@ -17,6 +17,32 @@ export async function POST(req: NextRequest) {
     const { question, conversation } = await req.json();
     const queryLower = question.toLowerCase();
     
+    // Add this new classification section right after getting queryLower
+    // Check if query is about low-performing products to cut
+    const isLowPerformingQuery = 
+      (queryLower.includes('cut') || 
+       queryLower.includes('eliminate') || 
+       queryLower.includes('remove') || 
+       queryLower.includes('worst') || 
+       queryLower.includes('bottom') || 
+       queryLower.includes('lowest')) && 
+      (queryLower.includes('product') || 
+       queryLower.includes('item') || 
+       queryLower.includes('sales'));
+    
+    if (isLowPerformingQuery) {
+      console.log('Detected query about low-performing products');
+      // Import the handler function
+      const { handleLowPerformingProductsQuery } = await import('./handlers');
+      
+      // Fetch the data if not already done in existing code
+      const { data } = await fetchSpreadsheetData();
+      
+      // Call the handler
+      const result = await handleLowPerformingProductsQuery(question, data);
+      if (result) return result;
+    }
+    
     // Validate environment variables
     const env = validateEnv();
     console.log('Environment validated');

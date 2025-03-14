@@ -32,9 +32,13 @@ type Recommendation = {
   value: string;
   benchmark?: string;
   impact?: string;
+  novemberData?: number;
+  decemberData?: number;
+  previousData?: number;
+  currentData?: number;
 };
 
-type RecommendationState = 'default' | 'highlighted' | 'dimmed';
+type RecommendationState = 'default' | 'highlighted' | 'dimmed' | 'resolved';
 
 interface RecommendationDialogProps {
   recommendation: Recommendation;
@@ -100,12 +104,11 @@ const cleanImpactText = (impact?: string): string => {
 // Make same change in extractValuesFromImpact
 const extractValuesFromImpact = (impact?: string) => {
   try {
-    // Handle undefined case
     if (!impact) return { previousValue: null, currentValue: null };
     
     // Extract values using regex
-    const novMatch = impact.match(/November 2024: \$([0-9,.]+)/);
-    const decMatch = impact.match(/December 2024: \$([0-9,.]+)/);
+    const novMatch = impact.match(/November 2024:\s*\$([0-9,.]+)/);
+    const decMatch = impact.match(/December 2024:\s*\$([0-9,.]+)/);
     
     const novValue = novMatch ? novMatch[1].replace(/,/g, '') : null;
     const decValue = decMatch ? decMatch[1].replace(/,/g, '') : null;
@@ -133,6 +136,11 @@ function createCompleteRecommendation(rec: any): DialogRecommendation {
   };
 }
 
+// Add this helper function near other utility functions in the component
+const getRecKey = (rec: Recommendation): string => {
+  return `${rec.type}:${rec.target}`;
+};
+
 export function DashboardWidget() {
   console.log('DashboardWidget component rendering');
   
@@ -147,7 +155,21 @@ export function DashboardWidget() {
   const [selectedRec, setSelectedRec] = useState<Recommendation | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
+  
+  // Add this state for recommendation values
+  const [valuesState, setValuesState] = useState<{
+    values: Record<string, { previousValue: number, currentValue: number }>,
+    loadingValues: Record<string, boolean>
+  }>({
+    values: {},
+    loadingValues: {}
+  });
+  
+  // Helper to update state
+  const setStateHelper = (updater: (prev: typeof valuesState) => typeof valuesState) => {
+    setValuesState(updater);
+  };
+  
   const SHEETS_URL = "https://docs.google.com/spreadsheets/d/1aRB9-8eXwOhrNbaCrsqluIRPcsruOLp5F4Z3GJv0GS4/edit?gid=0#gid=0";
 
   useEffect(() => {
@@ -223,8 +245,14 @@ export function DashboardWidget() {
   const handleResolve = (rec: Recommendation) => {
     setRecStates(prev => {
       const newMap = new Map(prev);
-      newMap.set(rec.target, 'highlighted');
+      newMap.set(rec.target, 'resolved');
       return newMap;
+    });
+    
+    // Refresh recommendations to show the next one
+    setRecommendations(currentRecs => {
+      // Make a shallow copy to trigger re-render
+      return [...currentRecs];
     });
   };
 
@@ -242,6 +270,66 @@ export function DashboardWidget() {
       setSelectedRec(rec);
     }, 0);
   };
+
+  const fetchValuesForRec = async (rec: Recommendation) => {
+    const key = `${rec.type}:${rec.target}`;
+    
+    // Mark as loading
+    setValuesState(prev => ({
+      ...prev,
+      loadingValues: {
+        ...prev.loadingValues,
+        [key]: true
+      }
+    }));
+    
+    try {
+      const response = await fetch(`/api/data/values?target=${encodeURIComponent(rec.target)}&type=${rec.type}`);
+      if (!response.ok) throw new Error('Failed to fetch values');
+      
+      const data = await response.json();
+      
+      // Log the fetched data
+      console.log(`Fetched data for ${rec.target}:`, data);
+      
+      // Assuming the API returns an object with previousValue and currentValue
+      const previousValue = data.previousValue || 0;
+      const currentValue = data.currentValue || 0;
+
+      // Save the values
+      setValuesState(prev => ({
+        ...prev,
+        values: {
+          ...prev.values,
+          [key]: {
+            previousValue,
+            currentValue
+          }
+        },
+        loadingValues: {
+          ...prev.loadingValues,
+          [key]: false
+        }
+      }));
+
+      console.log(`Fetched values for ${rec.target}:`, {
+        previousValue,
+        currentValue
+      });
+    } catch (error) {
+      console.error(`Error fetching values for ${rec.target}:`, error);
+      setValuesState(prev => ({
+        ...prev,
+        loadingValues: {
+          ...prev.loadingValues,
+          [key]: false
+        }
+      }));
+    }
+  };
+
+  // Inside the render method, log the values state
+  console.log('Current values state:', valuesState.values);
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden h-full flex flex-col">
@@ -283,70 +371,123 @@ export function DashboardWidget() {
         ) : recommendations && recommendations.length > 0 ? (
           <ul className="space-y-4">
             {recommendations
-              // Filter out resolved recommendations
-              .filter(rec => {
-                const state = recStates.get(rec.target) || 'default';
-                return state === 'default';
-              })
-              // Take the first 3 unresolved recommendations
+              // Filter to only show downtrending items that aren't resolved
+              .filter(rec => rec.action === 'reverse_decline' && recStates.get(rec.target) !== 'resolved')
+              // Take only 3 recommendations
               .slice(0, 3)
               .map((rec, idx) => {
-                const state = recStates.get(rec.target) || 'default';
+                const key = `${rec.type}:${rec.target}`;
                 
+                // Extract percentage
+                const percentMatch = rec.value?.match(/(\d+(\.\d+)?)/);
+                const percent = percentMatch ? parseFloat(percentMatch[1]) : 0;
+
+                // Log the entire recommendation for debugging
+                console.log(`Full recommendation for ${rec.target}:`, rec);
+
+                // Try multiple methods to extract values
+                let previousValue = 0;
+                let currentValue = 0;
+
+                // Method 1: From impact field using our existing function
+                const extractedValues = extractValuesFromImpact(rec.impact);
+                console.log(`Extracted values from impact for ${rec.target}:`, extractedValues);
+
+                // Method 2: Try to parse from the benchmark data if available
+                if (rec.benchmark) {
+                  console.log(`Benchmark data for ${rec.target}:`, rec.benchmark);
+                  try {
+                    const parts = rec.benchmark.split(' vs ');
+                    if (parts.length === 2) {
+                      // Try to extract monetary values from other sources
+                      const novData = rec.novemberData || rec.previousData;
+                      const decData = rec.decemberData || rec.currentData;
+                      
+                      if (novData && typeof novData === 'number') previousValue = novData;
+                      if (decData && typeof decData === 'number') currentValue = decData;
+                      
+                      console.log(`Extracted from benchmark for ${rec.target}:`, { previousValue, currentValue });
+                    }
+                  } catch (e) {
+                    console.error(`Error parsing benchmark for ${rec.target}:`, e);
+                  }
+                }
+
+                // Method 3: Try to calculate from percentage and impact amount
+                if (rec.action === 'reverse_decline' && rec.impact && rec.value && (previousValue === 0 || currentValue === 0)) {
+                  const decreaseMatch = rec.impact?.match(/\$([0-9,.]+)/);
+                  if (decreaseMatch) {
+                    const decrease = parseFloat(decreaseMatch[1].replace(/,/g, ''));
+                    if (!isNaN(decrease) && !isNaN(percent) && percent > 0) {
+                      // If this is a X% decrease of $Y, we can calculate the previous value
+                      previousValue = (100 * decrease) / percent;
+                      currentValue = previousValue - decrease;
+                      console.log(`Calculated from percentage for ${rec.target}:`, { previousValue, currentValue });
+                    }
+                  }
+                }
+
+                // Fallback to extracted values from impact if other methods failed
+                if (previousValue === 0 && extractedValues.previousValue) {
+                  previousValue = parseFloat(extractedValues.previousValue);
+                }
+                if (currentValue === 0 && extractedValues.currentValue) {
+                  currentValue = parseFloat(extractedValues.currentValue);
+                }
+
+                // Additional fallback: try to fetch from the API if we still don't have values
+                if (previousValue === 0 || currentValue === 0) {
+                  console.log(`No values found for ${rec.target}, triggering API fetch`);
+                  // This will trigger the fetchValuesForRec in useEffect
+                  setTimeout(() => fetchValuesForRec(rec), 100);
+                }
+
+                console.log(`Final values for ${rec.target}:`, { previousValue, currentValue });
+
                 return (
-                  <li key={idx} className="p-6 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600">
-                    <div className="flex flex-col md:flex-row justify-between gap-6">
-                      <div className="flex-1">
-                        <div className="font-medium text-red-600 dark:text-red-400 mb-3 flex items-center gap-2 text-lg">
-                          <span>Urgent: {rec.target}</span>
+                  <li key={idx} className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                    <div>
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h3 className="text-lg font-medium text-red-600 dark:text-red-500">
+                            Urgent: {rec.target}
+                          </h3>
+                          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                            Revenue declining by {percent.toFixed(1)}%
+                          </p>
                         </div>
                         
-                        <div className="text-gray-700 dark:text-gray-300 space-y-3 mb-4">
-                          <p className="mb-2">{cleanImpactText(rec.impact)}</p>
+                        <div className="flex flex-col">
+                          <button
+                            onClick={() => handleChatAbout(rec)}
+                            className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all"
+                          >
+                            Get Advice
+                          </button>
                           
-                          {/* Extract and display values */}
-                          {(() => {
-                            const { previousValue, currentValue } = extractValuesFromImpact(rec.impact);
-                            return (
-                              <>
-                                <div className="flex items-center gap-2 text-sm">
-                                  <span className="font-medium">November 2024:</span>
-                                  <span className="text-gray-900 dark:text-gray-100">
-                                    ${previousValue ? Number(previousValue).toLocaleString('en-US', { minimumFractionDigits: 2 }) : '0.00'}
-                                  </span>
-                                </div>
-                                
-                                <div className="flex items-center gap-2 text-sm">
-                                  <span className="font-medium">December 2024:</span>
-                                  <span className="text-gray-900 dark:text-gray-100">
-                                    ${currentValue ? Number(currentValue).toLocaleString('en-US', { minimumFractionDigits: 2 }) : '0.00'}
-                                  </span>
-                                </div>
-                              </>
-                            );
-                          })()}
+                          <button
+                            onClick={() => handleResolve(rec)}
+                            className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all mt-1"
+                          >
+                            Resolve
+                          </button>
                         </div>
                       </div>
                       
-                      <div className="flex flex-col gap-2 self-start">
-                        <button
-                          onClick={() => handleChatAbout(rec)}
-                          className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-sm hover:shadow flex items-center justify-center gap-2 w-32"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                          </svg>
-                          Get Advice
-                        </button>
-                        <button
-                          onClick={() => handleResolve(rec)}
-                          className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-sm hover:shadow flex items-center justify-center gap-2 w-32"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                          </svg>
-                          Resolve
-                        </button>
+                      <div className="space-y-1 mt-1">
+                        <div className="flex justify-start">
+                          <span className="text-gray-600 dark:text-gray-400">November 2024:</span>
+                          <span className="text-gray-900 dark:text-gray-100 font-medium ml-2">
+                            ${previousValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                        
+                        <div className="flex justify-start">
+                          <span className="text-gray-600 dark:text-gray-400">December 2024:</span>
+                          <span className="text-red-600 dark:text-red-400 font-medium ml-2">
+                            ${currentValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </li>

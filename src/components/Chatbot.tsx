@@ -5,6 +5,8 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus, github } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { stripMarkdownFormatting } from '../utils/markdownProcessor';
+import { analyzeQuery } from '../utils/queryAnalyzer';
 
 // Fix the message type error
 interface Message {
@@ -22,6 +24,7 @@ type Product = {
   id: string;
   name: string;
   category: string;
+  revenue: number;
 };
 
 type Location = {
@@ -29,6 +32,16 @@ type Location = {
   name: string;
   region: string;
 };
+
+// First, add a type for the product data items
+interface ProductRevenue {
+  name?: string;
+  product?: string;
+  id?: string;
+  revenue?: number;
+  value?: number;
+  total?: number | string;
+}
 
 // Module load logging
 console.log('Chatbot module initializing');
@@ -80,6 +93,122 @@ const extractDateInfo = (query: string) => {
     hasYearSpecified: dates.length > 0
   };
 };
+
+// Update the queryProductRevenue function with proper type annotations
+async function queryProductRevenue(question: string): Promise<string> {
+  try {
+    // Use the graphs API instead, which has the actual revenue data
+    const graphsResponse = await fetch('/api/graphs?timeRange=all');
+    if (!graphsResponse.ok) throw new Error('Failed to fetch revenue data');
+    const graphsData = await graphsResponse.json();
+    
+    console.log("Graphs API response:", graphsData);
+    
+    // The revenue by product data should be in the revenueByProduct field
+    let productData: ProductRevenue[] = [];
+    if (graphsData.revenueByProduct && Array.isArray(graphsData.revenueByProduct)) {
+      productData = graphsData.revenueByProduct;
+    } else {
+      // Try to find the data in other possible locations
+      for (const key in graphsData) {
+        if (Array.isArray(graphsData[key]) && graphsData[key].length > 0 && 
+            graphsData[key][0] && (graphsData[key][0].name || graphsData[key][0].product)) {
+          productData = graphsData[key];
+          break;
+        }
+      }
+    }
+    
+    if (!productData.length) {
+      throw new Error("Could not find product revenue data in the API response");
+    }
+    
+    // Normalize the data to ensure each product has a name and revenue
+    const normalizedProducts = productData.map((item: ProductRevenue) => ({
+      name: item.name || item.product || item.id || "Unnamed Product",
+      revenue: parseFloat(item.revenue?.toString() || item.value?.toString() || item.total?.toString() || "0") || 0
+    }));
+    
+    // Sort by revenue, highest first
+    const sortedProducts = normalizedProducts.sort((a, b) => b.revenue - a.revenue);
+    
+    // Format response
+    let response = `# Top Revenue Products\n\nBased on our data analysis, here are the products that contribute most to overall revenue:\n\n`;
+    
+    // Add top 3 products
+    sortedProducts.slice(0, 3).forEach((product, index) => {
+      response += `${index + 1}. **${product.name}**: $${product.revenue.toLocaleString('en-US', { 
+        minimumFractionDigits: 2, 
+        maximumFractionDigits: 2 
+      })}\n`;
+    });
+    
+    if (sortedProducts.length > 0) {
+      response += `\nThe product that contributes the most to overall revenue is **${sortedProducts[0].name}** with $${
+        sortedProducts[0].revenue.toLocaleString('en-US', { 
+          minimumFractionDigits: 2, 
+          maximumFractionDigits: 2 
+        })
+      }.`;
+    } else {
+      response += "\nNo product data available.";
+    }
+    
+    return response;
+  } catch (error) {
+    console.error('Error in direct product revenue query:', error);
+    return `I encountered an error while retrieving product revenue data: ${error instanceof Error ? error.message : 'Unknown error'}. Please try asking a different question.`;
+  }
+}
+
+// Move the categorize query function outside the component as it doesn't need component state
+function categorizeQuery(question: string): { type: string; confidence: number } {
+  // Lowercase and normalize the query
+  const normalizedQuery = question.toLowerCase().trim();
+  
+  // Define specialized patterns with confidence levels
+  const patterns = [
+    // Product revenue queries (high confidence)
+    {
+      type: 'product_revenue',
+      confidence: 0.95,
+      test: (q: string) => {
+        const hasProductTerm = /\b(product|item|bowl|smoothie)\b/.test(q);
+        const hasContributionTerm = /\b(contributes?|highest|most|top|best)\b/.test(q);
+        const hasRevenueTerm = /\b(revenue|sales|profit|income|money)\b/.test(q);
+        
+        // Only match if all three components are present
+        return hasProductTerm && hasContributionTerm && hasRevenueTerm;
+      }
+    },
+    
+    // Day of week sales queries - only match specific patterns
+    {
+      type: 'day_of_week',
+      confidence: 0.9,
+      test: (q: string) => {
+        return /\b(what|which)\b.{0,20}\b(day|weekday)\b.{0,30}\b(highest|most|best|top)\b.{0,20}\b(sales|revenue)\b/.test(q) ||
+               /\b(day).{0,10}\b(with)\b.{0,15}\b(highest|most|best|top)\b.{0,20}\b(sales|revenue)\b/.test(q);
+      }
+    }
+  ];
+  
+  // Check each pattern in order
+  for (const pattern of patterns) {
+    if (pattern.test(normalizedQuery)) {
+      return { type: pattern.type, confidence: pattern.confidence };
+    }
+  }
+  
+  // If we get here, determine if it's a general analytics question
+  // but with lower confidence
+  if (/\b(sales|revenue|performance|metrics)\b/.test(normalizedQuery)) {
+    return { type: 'general_analytics', confidence: 0.6 };
+  }
+  
+  // Default to general question with high confidence
+  return { type: 'general_question', confidence: 0.9 };
+}
 
 // Use underscore to indicate intentional non-use
 export function Chatbot({ previousQuestion: _prevQuestion }: ChatbotProps) {
@@ -166,6 +295,59 @@ export function Chatbot({ previousQuestion: _prevQuestion }: ChatbotProps) {
     );
   }
 
+  // All handlers that need access to component state must be inside the component
+  
+  // Helper function to check if we have day of week data available
+  function hasImplementedDayOfWeekAnalysis(): boolean {
+    // For now, return false since we haven't implemented this yet
+    return false;
+  }
+
+  // Handler for general questions (uses ChatGPT API)
+  async function handleGeneralQuestion(question: string, previousMessages: Message[]): Promise<string> {
+    // First, check if we have the products list to provide context
+    let validProductContext = "";
+    if (products && products.length > 0) {
+      validProductContext = "The business sells the following products: " + 
+        products.map(p => p.name).join(", ") + ". ";
+    }
+    
+    // Add a system message with explicit instructions not to make up product info
+    const systemMessage = {
+      role: 'system',
+      content: `${validProductContext}Only refer to the products listed above. NEVER make up products that aren't in this list. If you don't have data about a specific analytical question, acknowledge that you don't have that information instead of making up an answer.`
+    };
+    
+    // Add the system message to the conversation context
+    const conversationWithContext = [
+      systemMessage,
+      ...previousMessages?.slice(-6) || []
+    ];
+    
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question: question,
+        conversation: conversationWithContext
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`ChatGPT API error: ${response.status}`);
+    }
+    
+    const rawText = await response.text();
+    
+    try {
+      const data = JSON.parse(rawText);
+      return data.answer || rawText;
+    } catch {
+      return rawText;
+    }
+  }
+
+  // Main submit handler must be inside the component to access state
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -174,159 +356,97 @@ export function Chatbot({ previousQuestion: _prevQuestion }: ChatbotProps) {
     const userQuestion = input.trim();
     console.log("Processing question:", userQuestion);
     
-    // Add user message to the chat
+    // First add the user message to the chat
     setMessages(prev => [...(prev || []), { role: 'user', content: userQuestion }]);
     setInput('');
     setIsLoading(true);
     
     try {
-      // Make the API request
-      console.log("Sending API request with question:", userQuestion);
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          question: userQuestion,
-          conversation: messages?.slice(-6) || []
-        })
-      });
+      // STEP 1: Categorize the question with confidence scoring
+      const { type: queryType, confidence } = categorizeQuery(userQuestion);
+      console.log(`Query categorized as: ${queryType} (confidence: ${confidence})`);
       
-      // Enhanced response debugging
-      const rawText = await response.text();
-      console.log("Raw API response:", rawText);
-      console.log("Response length:", rawText.length);
+      // STEP 2: Only route to specialized handlers if confidence is high enough
+      let response;
       
-      let answerContent = "";
-      try {
-        // Try to parse as JSON
-        const data = JSON.parse(rawText);
-        console.log("Parsed response data:", data);
-        
-        // Simple, direct access to the answer string
-        if (typeof data.answer === 'string' && data.answer.trim().length > 0) {
-          answerContent = data.answer;
-        } else {
-          // Use explicit stringification for any non-string answers
-          answerContent = JSON.stringify(data.answer, null, 2);
+      if (confidence >= 0.9) {
+        if (queryType === 'product_revenue') {
+          response = await queryProductRevenue(userQuestion);
+        } 
+        else if (queryType === 'day_of_week' && hasImplementedDayOfWeekAnalysis()) {
+          // We won't reach this yet since hasImplementedDayOfWeekAnalysis returns false
+          response = await handleGeneralQuestion(userQuestion, messages);
         }
-      } catch (error) {
-        console.error("Error parsing response:", error);
-        answerContent = rawText || "No response received";
+        else {
+          // For all other types, including high confidence general questions
+          response = await handleGeneralQuestion(userQuestion, messages);
+        }
+      } else {
+        // For lower confidence matches, always use ChatGPT
+        console.log("Low confidence match, routing to ChatGPT");
+        response = await handleGeneralQuestion(userQuestion, messages);
       }
       
-      // Always add a message, even if we couldn't parse the response
+      // Add the response to messages
       setMessages(prev => [...(prev || []), { 
         role: 'assistant', 
-        content: answerContent || "No interpretable response received."
+        content: response
       }]);
-      
     } catch (error) {
-      console.error("Chat request error:", error);
-      
-      // Add an error message to the chat
+      console.error("Error processing query:", error);
+      // Add error message to chat
       setMessages(prev => [...(prev || []), { 
         role: 'assistant', 
-        content: `Sorry, I encountered an error: ${error instanceof Error ? error.message : "Unknown error"}`
+        content: `I encountered an error: ${error instanceof Error ? error.message : "Unknown error"}`
       }]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Add a helper function to extract product focus
-  function extractProductFocus(query: string, products: Product[]): string | null {
-    // Check if any product name appears in the query
-    for (const product of products) {
-      if (query.toLowerCase().includes(product.name.toLowerCase())) {
-        return product.name;
-      }
-    }
-    return null;
-  }
-
-  // Add this helper function to detect and format price data
-  const formatPriceResponse = (content: string) => {
-    if (content.includes("price analysis") || content.includes("optimal price") || 
-        content.includes("pricing recommendation")) {
-      
-      // Extract current and optimal price if they exist
-      const currentPriceMatch = content.match(/current price:?\s*\$?([\d,.]+)/i);
-      const optimalPriceMatch = content.match(/optimal price:?\s*\$?([\d,.]+)/i);
-      
-      const currentPrice = currentPriceMatch ? currentPriceMatch[1] : null;
-      const optimalPrice = optimalPriceMatch ? optimalPriceMatch[1] : null;
-      
-      // If we have both prices, create an enhanced display
-      if (currentPrice && optimalPrice) {
-        return (
-          <div>
-            <div className="mb-3">{content}</div>
-            
-            {currentPrice !== optimalPrice && (
-              <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-md border border-blue-100 dark:border-blue-800 mt-2">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-gray-700 dark:text-gray-300">Current Price:</span>
-                  <span className="font-medium">${currentPrice}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-700 dark:text-gray-300">Recommended Price:</span>
-                  <span className="font-medium text-green-600 dark:text-green-400">${optimalPrice}</span>
-                </div>
-              </div>
-            )}
-          </div>
-        );
-      }
-    }
-    
-    // If no price data detected or couldn't parse properly, return normal content
-    return content;
-  };
-
-  // Update the formatChatResponse function to remove bold text and headings
-
-  function formatChatResponse(message: string): React.ReactNode {
-    // Simple text formatting without bold text or different heading sizes
+  // Add the formatChatResponse function inside the component
+  function formatChatResponse(content: string) {
+    // This function renders markdown content in chat messages
     return (
-      <div className="whitespace-pre-wrap">
-        {message.split('\n\n').map((paragraph, i) => {
-          // Check if it's a list item
-          if (paragraph.startsWith('- ') || paragraph.startsWith('* ')) {
-            return (
-              <ul key={i} className="list-disc pl-5 my-2">
-                {paragraph.split('\n').map((item, j) => (
-                  <li key={j} className="my-1">
-                    {item.replace(/^[-*]\s+/, '')}
-                  </li>
-                ))}
-              </ul>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          code({ className, children, ...props }: any) {
+            const match = /language-(\w+)/.exec(className || '');
+            const inline = props.inline || false;
+            
+            return !inline && match ? (
+              <SyntaxHighlighter
+                style={vscDarkPlus}
+                language={match[1]}
+                PreTag="div"
+                {...props}
+              >
+                {String(children).replace(/\n$/, '')}
+              </SyntaxHighlighter>
+            ) : (
+              <code className={className} {...props}>
+                {children}
+              </code>
             );
-          }
-          
-          // Check if it's a numbered list
-          if (/^\d+\.\s/.test(paragraph)) {
-            return (
-              <ol key={i} className="list-decimal pl-5 my-2">
-                {paragraph.split('\n').map((item, j) => (
-                  <li key={j} className="my-1">
-                    {item.replace(/^\d+\.\s+/, '')}
-                  </li>
-                ))}
-              </ol>
-            );
-          }
-          
-          // Remove bold text formatting
-          const plainText = paragraph.replace(/\*\*(.*?)\*\*/g, '$1');
-          
-          // Regular paragraph without any special formatting
-          return (
-            <p key={i} className={i > 0 ? "mt-4" : ""}>
-              {plainText}
-            </p>
-          );
-        })}
-      </div>
+          },
+          // Add styling for other markdown elements
+          p: ({ children }) => <p className="mb-2">{children}</p>,
+          h1: ({ children }) => <h1 className="text-xl font-bold mb-3 mt-4">{children}</h1>,
+          h2: ({ children }) => <h2 className="text-lg font-bold mb-2 mt-3">{children}</h2>,
+          h3: ({ children }) => <h3 className="text-md font-bold mb-2 mt-3">{children}</h3>,
+          ul: ({ children }) => <ul className="list-disc pl-5 mb-2">{children}</ul>,
+          ol: ({ children }) => <ol className="list-decimal pl-5 mb-2">{children}</ol>,
+          li: ({ children }) => <li className="mb-1">{children}</li>,
+          a: ({ href, children }) => (
+            <a href={href} className="text-blue-500 hover:underline" target="_blank" rel="noopener noreferrer">
+              {children}
+            </a>
+          ),
+        }}
+      >
+        {content}
+      </ReactMarkdown>
     );
   }
 
@@ -380,24 +500,21 @@ export function Chatbot({ previousQuestion: _prevQuestion }: ChatbotProps) {
       </div>
 
       <form onSubmit={handleSubmit} className="p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-        <div className="flex gap-3">
+        <div className="flex">
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Ask a question..."
-            className="flex-1 p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="flex-1 p-2 border rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
             disabled={isLoading}
           />
           <button
             type="submit"
-            disabled={isLoading}
-            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-all shadow-sm hover:shadow flex items-center gap-2"
+            className="bg-blue-600 text-white px-4 py-2 rounded-r-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+            disabled={isLoading || !input.trim()}
           >
-            <span>Send</span>
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-            </svg>
+            Send {isLoading ? "..." : "→"}
           </button>
         </div>
       </form>

@@ -167,26 +167,99 @@ async function generateRecommendations(data: any[]): Promise<Recommendation[]> {
   const currentMonth = months[months.length - 1];
   const previousMonth = months[months.length - 2];
   
-  // Find all products with changes
-  const productChanges: Array<{
+  // Modified approach - look for products with declining sales
+  const productRecommendations: Recommendation[] = [];
+  
+  // Calculate monthly revenue for each product
+  // Group by product name and then by month
+  const productMonthlyRevenue = new Map<string, Map<string, number>>();
+  
+  // Process all data rows to build product revenue by month
+  rows.forEach(row => {
+    try {
+      const productName = row[4]; // Column E - Product_Name
+      const revenue = parseFloat(row[8] || '0'); // Column I - Line_Total
+      const date = new Date(row[1]); // Column B - Purchase_Date
+      
+      // Skip invalid data
+      if (!productName || isNaN(revenue) || isNaN(date.getTime())) {
+        return;
+      }
+      
+      // Format month key (YYYY-MM)
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      
+      // Initialize maps if needed
+      if (!productMonthlyRevenue.has(productName)) {
+        productMonthlyRevenue.set(productName, new Map<string, number>());
+      }
+      
+      // Add revenue to product/month
+      const monthlyMap = productMonthlyRevenue.get(productName)!;
+      monthlyMap.set(monthKey, (monthlyMap.get(monthKey) || 0) + revenue);
+    } catch (e) {
+      console.error('Error processing row for product trends:', e);
+    }
+  });
+  
+  // Now identify products with declining sales
+  const declineProducts: Array<{
     product: string;
-    change: number;
-    currentSales: number;
-    previousSales: number;
+    currentMonth: string;
+    previousMonth: string;
+    currentValue: number;
+    previousValue: number;
+    change: number; // Absolute dollar change
+    percentChange: number;
   }> = [];
   
-  const currentProducts = monthlyProductSales.get(currentMonth) || new Map();
-  const previousProducts = monthlyProductSales.get(previousMonth) || new Map();
+  // For each product, compare most recent months
+  productMonthlyRevenue.forEach((monthlyData, product) => {
+    // Sort months chronologically
+    const sortedMonths = Array.from(monthlyData.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]));
+    
+    // Need at least two months of data
+    if (sortedMonths.length < 2) return;
+    
+    // Compare most recent months
+    const currentMonth = sortedMonths[sortedMonths.length - 1];
+    const previousMonth = sortedMonths[sortedMonths.length - 2];
+    
+    // Calculate dollar change and percent change
+    const change = currentMonth[1] - previousMonth[1];
+    const percentChange = (change / previousMonth[1]) * 100;
+    
+    // Only include products with declining sales (negative change)
+    if (change < 0) {
+      declineProducts.push({
+        product,
+        currentMonth: currentMonth[0],
+        previousMonth: previousMonth[0],
+        currentValue: currentMonth[1],
+        previousValue: previousMonth[1],
+        change: Math.abs(change), // Use absolute value for sorting
+        percentChange
+      });
+    }
+  });
   
-  previousProducts.forEach((previousAmount, product) => {
-    if (previousAmount < 100) return; // Ignore low volume
-    const currentAmount = currentProducts.get(product) || 0;
-    const change = ((currentAmount - previousAmount) / previousAmount) * 100;
-    productChanges.push({
-      product,
-      change,
-      currentSales: currentAmount,
-      previousSales: previousAmount
+  // Sort by dollar impact (highest absolute decline first)
+  declineProducts.sort((a, b) => b.change - a.change);
+  
+  // Create recommendations for top declining products
+  declineProducts.slice(0, 5).forEach(item => {
+    const monthNameCurrent = getMonthNameFromKey(item.currentMonth);
+    const monthNamePrevious = getMonthNameFromKey(item.previousMonth);
+    
+    productRecommendations.push({
+      type: 'product',
+      action: 'reverse_decline',
+      target: item.product,
+      metric: 'revenue',
+      value: `${Math.abs(item.percentChange).toFixed(1)}%`,
+      benchmark: `${monthNamePrevious} vs ${monthNameCurrent}`,
+      impact: `$${item.change.toFixed(2)} decrease`
     });
   });
   
@@ -214,52 +287,16 @@ async function generateRecommendations(data: any[]): Promise<Recommendation[]> {
   });
   
   // Sort by absolute change (highest first)
-  productChanges.sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
   storeChanges.sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
   
-  // Force a store recommendation even if none meet the threshold
-  if (storeChanges.length === 0 && previousStores.size > 0) {
-    // Get the store with the highest sales
-    const storesByRevenue = Array.from(previousStores.entries())
-      .sort((a, b) => b[1] - a[1]);
-    
-    if (storesByRevenue.length > 0) {
-      const [store, previousSales] = storesByRevenue[0];
-      const currentSales = currentStores.get(store) || 0;
-      const change = ((currentSales - previousSales) / previousSales) * 100;
-      
-      storeChanges.push({
-        store,
-        change,
-        currentSales,
-        previousSales
-      });
-    }
-  }
-  
-  // Create recommendations
-  const recommendations: Recommendation[] = [];
-  
-  // Add product recommendations
-  productChanges.forEach(({ product, change, currentSales, previousSales }) => {
-    if (Math.abs(change) >= 10) { // Threshold for products
-      recommendations.push({
-        type: 'product',
-        action: change < 0 ? 'reverse_decline' : 'maintain_growth',
-        target: product,
-        metric: 'Revenue',
-        value: `$${currentSales.toFixed(2)}`,
-        benchmark: `$${previousSales.toFixed(2)}`,
-        impact: `Revenue ${change < 0 ? 'declining' : 'growing'} ${Math.abs(change).toFixed(1)}% (${formatMonth(previousMonth)}: $${previousSales.toFixed(2)} → ${formatMonth(currentMonth)}: $${currentSales.toFixed(2)})`
-      });
-    }
-  });
+  // Create store recommendations
+  const storeRecommendations: Recommendation[] = [];
   
   // Add store recommendations
   storeChanges.forEach(({ store, change, currentSales, previousSales }) => {
     // Always include at least the first store, regardless of threshold
     if (Math.abs(change) >= 3 || storeChanges.length <= 1) { // Lower threshold for stores
-      recommendations.push({
+      storeRecommendations.push({
         type: 'store',
         action: change < 0 ? 'reverse_decline' : 'maintain_growth',
         target: store,
@@ -274,6 +311,7 @@ async function generateRecommendations(data: any[]): Promise<Recommendation[]> {
   });
   
   // Sort recommendations with the best ones first
+  const recommendations = [...productRecommendations, ...storeRecommendations];
   recommendations.sort((a, b) => {
     // First, prioritize declining over growing
     if (a.action === 'reverse_decline' && b.action !== 'reverse_decline') return -1;
@@ -347,6 +385,15 @@ async function generateRecommendations(data: any[]): Promise<Recommendation[]> {
   });
   
   return finalRecs;
+}
+
+// Helper function to get month name from YYYY-MM format
+function getMonthNameFromKey(key: string): string {
+  const [year, month] = key.split('-');
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
+                      'July', 'August', 'September', 'October', 'November', 'December'];
+  
+  return `${monthNames[parseInt(month) - 1]} ${year}`;
 }
 
 export async function GET(request: Request) {

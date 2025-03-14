@@ -903,6 +903,7 @@ Would you like more specific recommendations for any particular product or locat
 }
 
 function generateRevenueByTimeReport(data: any[], query: string): string {
+  // Extract month from query
   const monthMatches = /january|february|march|april|may|june|july|august|september|october|november|december/i.exec(query);
   const targetMonth = monthMatches ? monthMatches[0].toLowerCase() : 'december';
   
@@ -1237,4 +1238,88 @@ function generateSeasonalProductComparison(data: any[]): string {
   response += `Consider seasonal menu rotations and promotions to highlight these seasonal preferences.\n`;
   
   return response;
+}
+
+export async function handleLowPerformingProductsQuery(question: string, data: any[]) {
+  console.log('Processing low performing products query:', question);
+  
+  try {
+    const rows = data.slice(1); // Skip header row
+    
+    // Extract percentage from query if mentioned (default to 20%)
+    const percentageMatch = question.match(/(\d+)%/);
+    const percentage = percentageMatch ? parseInt(percentageMatch[1]) : 20;
+    console.log(`Looking for bottom ${percentage}% of products`);
+    
+    // Calculate sales by product
+    const productSales: Record<string, number> = {};
+    const productQuantities: Record<string, number> = {};
+    
+    rows.forEach(row => {
+      try {
+        const productName = row[4]; // Product name (column E)
+        const quantity = parseInt(row[6] || '1'); // Quantity (column G)
+        const sales = parseFloat(row[8] || '0'); // Sales amount (column I)
+        
+        if (!productName || isNaN(sales)) return;
+        
+        if (!productSales[productName]) {
+          productSales[productName] = 0;
+          productQuantities[productName] = 0;
+        }
+        
+        productSales[productName] += sales;
+        productQuantities[productName] += quantity;
+      } catch (e) {
+        console.error('Error processing row for product sales:', e);
+      }
+    });
+    
+    // Sort products by sales (lowest first)
+    const sortedProducts = Object.entries(productSales)
+      .map(([product, sales]) => ({
+        product,
+        sales,
+        quantity: productQuantities[product],
+        averagePrice: sales / productQuantities[product]
+      }))
+      .sort((a, b) => a.sales - b.sales);
+    
+    // Calculate how many products make up the bottom percentage
+    const totalProducts = sortedProducts.length;
+    const bottomCount = Math.max(1, Math.ceil(totalProducts * (percentage / 100)));
+    
+    // Get the bottom performers
+    const bottomPerformers = sortedProducts.slice(0, bottomCount);
+    
+    // Calculate what percentage of total sales these represent
+    const totalSales = sortedProducts.reduce((sum, item) => sum + item.sales, 0);
+    const bottomSales = bottomPerformers.reduce((sum, item) => sum + item.sales, 0);
+    const salesPercentage = (bottomSales / totalSales * 100).toFixed(1);
+    
+    // Format response
+    const response = `# Low Performing Products Analysis
+
+Based on your sales data, here are the **bottom ${percentage}% of products** by revenue that could be considered for elimination:
+
+${bottomPerformers.map((item, i) => 
+  `${i+1}. **${item.product}**: $${item.sales.toFixed(2)} (${item.quantity} units sold at avg. $${item.averagePrice.toFixed(2)} each)`
+).join('\n')}
+
+These ${bottomPerformers.length} products represent only ${salesPercentage}% of your total revenue.
+
+## Recommendations
+
+1. **Consider discontinuing**: ${bottomPerformers.slice(0, 3).map(item => item.product).join(', ')}
+2. **Menu optimization**: Replacing these items would free up menu space and operational resources
+3. **Alternatives**: Consider seasonal replacements or simplified versions that require fewer ingredients
+4. **Before cutting**: Check if any of these items are new or have strategic importance beyond sales
+
+Would you like a more detailed analysis of any specific product?`;
+    
+    return NextResponse.json({ answer: response });
+  } catch (error) {
+    console.error('Error in low performing products handler:', error);
+    return null; // Return null to allow fallback to OpenAI
+  }
 }
