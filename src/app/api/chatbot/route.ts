@@ -11,10 +11,31 @@ const env = {
   GOOGLE_PRIVATE_KEY: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
 };
 
+// Add this function to properly format the private key
+function formatPrivateKey(key: string): string {
+  // If the key already includes the correct PEM format with line breaks, return it as is
+  if (key.includes('-----BEGIN PRIVATE KEY-----') && key.includes('\n')) {
+    return key;
+  }
+  
+  // Replace literal '\n' strings with actual line breaks
+  const formattedKey = key.replace(/\\n/g, '\n');
+  
+  // If the key doesn't have the proper PEM header/footer, add them
+  if (!formattedKey.includes('-----BEGIN PRIVATE KEY-----')) {
+    return `-----BEGIN PRIVATE KEY-----\n${formattedKey}\n-----END PRIVATE KEY-----\n`;
+  }
+  
+  return formattedKey;
+}
+
+// Then modify where you initialize the Google credentials
+const privateKey = formatPrivateKey(process.env.GOOGLE_PRIVATE_KEY || '');
+
 // Set up authentication
 const auth = new google.auth.JWT({
   email: env.GOOGLE_CLIENT_EMAIL,
-  key: env.GOOGLE_PRIVATE_KEY,
+  key: privateKey,  // Use the formatted key
   scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
 });
 
