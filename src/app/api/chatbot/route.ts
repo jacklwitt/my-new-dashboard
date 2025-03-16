@@ -14,19 +14,10 @@ function getGoogleAuth() {
     if (privateKey.includes('\\n')) {
       privateKey = privateKey.replace(/\\n/g, '\n');
     }
-    
-    // Validate the key has the necessary structure
-    if (!privateKey.includes('-----BEGIN PRIVATE KEY-----')) {
-      console.error("Private key appears to be missing PEM format headers");
-    }
 
     if (!privateKey) {
       throw new Error("No Google private key provided");
     }
-    
-    console.log("Auth setup with key starting with:", 
-                privateKey.substring(0, 40) + "..." + 
-                privateKey.substring(privateKey.length - 20));
     
     // Standard JWT client with additional options for Node.js 22 compatibility
     return new google.auth.JWT({
@@ -39,10 +30,6 @@ function getGoogleAuth() {
     throw new Error(`Failed to initialize Google authentication: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
-
-// Enable Node.js to use the legacy OpenSSL provider through an environment variable
-// This is critical for JWT signing on Node.js 18+
-process.env.NODE_OPTIONS = '--openssl-legacy-provider';
 
 export async function POST(request: Request) {
   try {
@@ -88,7 +75,6 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error('Error in chatbot data API:', error);
     
-    // Return a more detailed error message to help debug
     const errorMessage = error instanceof Error ? 
       `${error.name}: ${error.message}` : 
       'Unknown error occurred';
