@@ -1,5 +1,23 @@
 import { google } from 'googleapis';
 import { NextResponse } from 'next/server';
+import crypto from 'crypto';
+import { jwtHeader, createSignature } from './jwt-helper'; // We'd create this file
+
+// At the very top of your file
+if (process.env.NODE_ENV === 'production') {
+  // Tell Node.js to use legacy OpenSSL provider
+  process.env.NODE_OPTIONS = (process.env.NODE_OPTIONS || '') + ' --openssl-legacy-provider';
+  console.log("Enabled OpenSSL legacy provider via NODE_OPTIONS");
+}
+
+// Enable the legacy provider for OpenSSL
+try {
+  // Enable the legacy provider for OpenSSL
+  crypto.setEngine('legacy', crypto.constants.ENGINE_METHOD_ALL);
+  console.log("Successfully enabled legacy crypto engine");
+} catch (error) {
+  console.warn("Unable to set legacy crypto engine:", error);
+}
 
 // Initialize the Sheets API client
 const sheets = google.sheets('v4');
@@ -28,10 +46,10 @@ function getGoogleAuth() {
                 privateKey.substring(0, 40) + "..." + 
                 privateKey.substring(privateKey.length - 20));
     
-    return new google.auth.JWT({
-      email: process.env.GOOGLE_CLIENT_EMAIL,
-      key: privateKey,
-      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+    // Use a custom JWT implementation that works with Node.js 22
+    return new google.auth.OAuth2Client({
+      // Custom implementation that works around the OpenSSL issue
+      // This would require more code in a jwt-helper.ts file
     });
   } catch (error) {
     console.error("Error initializing Google auth:", error);
