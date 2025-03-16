@@ -1,5 +1,6 @@
 import { google } from 'googleapis';
 import { NextResponse } from 'next/server';
+import { Buffer } from 'buffer';
 
 // Initialize the Sheets API client
 const sheets = google.sheets('v4');
@@ -27,8 +28,21 @@ function preparePrivateKey(rawKey: string | undefined): string {
 // Initialize Google credentials with error handling
 function getGoogleAuth() {
   try {
-    // Try the direct approach with improved formatting
-    const privateKey = preparePrivateKey(process.env.GOOGLE_PRIVATE_KEY);
+    let privateKey: string;
+    
+    // Use base64 encoded key if available (recommended)
+    if (process.env.GOOGLE_PRIVATE_KEY_BASE64) {
+      privateKey = Buffer.from(process.env.GOOGLE_PRIVATE_KEY_BASE64, 'base64').toString('utf8');
+      console.log("Using base64 encoded private key");
+    }
+    // Fallback to regular key with formatting
+    else if (process.env.GOOGLE_PRIVATE_KEY) {
+      privateKey = process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n');
+      console.log("Using regular private key with formatting");
+    }
+    else {
+      throw new Error("No Google private key provided");
+    }
     
     return new google.auth.JWT({
       email: process.env.GOOGLE_CLIENT_EMAIL,
