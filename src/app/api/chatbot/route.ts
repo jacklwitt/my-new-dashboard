@@ -7,10 +7,26 @@ const sheets = google.sheets('v4');
 // Initialize Google credentials with error handling
 function getGoogleAuth() {
   try {
-    const privateKey = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'); // Ensure line breaks are handled
+    // Get the private key and handle different possible formats
+    let privateKey = process.env.GOOGLE_PRIVATE_KEY || '';
+    
+    // Check for double escaped newlines (\\n) and replace with actual newlines
+    if (privateKey.includes('\\n')) {
+      privateKey = privateKey.replace(/\\n/g, '\n');
+    }
+    
+    // Validate the key has the necessary structure
+    if (!privateKey.includes('-----BEGIN PRIVATE KEY-----')) {
+      console.error("Private key appears to be missing PEM format headers");
+    }
+
     if (!privateKey) {
       throw new Error("No Google private key provided");
     }
+    
+    console.log("Auth setup with key starting with:", 
+                privateKey.substring(0, 40) + "..." + 
+                privateKey.substring(privateKey.length - 20));
     
     return new google.auth.JWT({
       email: process.env.GOOGLE_CLIENT_EMAIL,
