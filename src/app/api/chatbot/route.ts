@@ -1,46 +1,14 @@
 import { google } from 'googleapis';
 import { NextResponse } from 'next/server';
-import { Buffer } from 'buffer';
 
 // Initialize the Sheets API client
 const sheets = google.sheets('v4');
 
-// More robust function to handle different private key formats
-function preparePrivateKey(rawKey: string | undefined): string {
-  if (!rawKey) return '';
-  
-  // If the key is already formatted correctly
-  if (rawKey.includes('-----BEGIN PRIVATE KEY-----') && rawKey.includes('\n')) {
-    return rawKey;
-  }
-  
-  // Replace literal \n with actual line breaks
-  let formattedKey = rawKey.replace(/\\n/g, '\n');
-  
-  // If missing PEM headers/footers, add them
-  if (!formattedKey.includes('-----BEGIN PRIVATE KEY-----')) {
-    formattedKey = `-----BEGIN PRIVATE KEY-----\n${formattedKey}\n-----END PRIVATE KEY-----\n`;
-  }
-  
-  return formattedKey;
-}
-
 // Initialize Google credentials with error handling
 function getGoogleAuth() {
   try {
-    let privateKey: string;
-    
-    // Use base64 encoded key if available (recommended)
-    if (process.env.GOOGLE_PRIVATE_KEY_BASE64) {
-      privateKey = Buffer.from(process.env.GOOGLE_PRIVATE_KEY_BASE64, 'base64').toString('utf8');
-      console.log("Using base64 encoded private key");
-    }
-    // Fallback to regular key with formatting
-    else if (process.env.GOOGLE_PRIVATE_KEY) {
-      privateKey = process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n');
-      console.log("Using regular private key with formatting");
-    }
-    else {
+    const privateKey = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'); // Ensure line breaks are handled
+    if (!privateKey) {
       throw new Error("No Google private key provided");
     }
     
