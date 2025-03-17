@@ -1,60 +1,36 @@
-import { google } from 'googleapis';
 import { NextResponse } from 'next/server';
-// Fix the import based on your actual env.ts exports
-import * as envUtils from '@/utils/env';
+import { google } from 'googleapis';
+import { validateEnv } from '@/utils/env';
 // Alternative options:
 // import { getEnv } from '@/utils/env';
 // import env from '@/utils/env';
 
-// Initialize the Sheets API client
-const sheets = google.sheets('v4');
-
-// Initialize Google credentials with error handling
-function getGoogleAuth() {
-  try {
-    // Get the private key and handle different possible formats
-    let privateKey = process.env.GOOGLE_PRIVATE_KEY || '';
-    
-    // Check for double escaped newlines (\\n) and replace with actual newlines
-    if (privateKey.includes('\\n')) {
-      privateKey = privateKey.replace(/\\n/g, '\n');
-    }
-
-    if (!privateKey) {
-      throw new Error("No Google private key provided");
-    }
-    
-    // Standard JWT client
-    return new google.auth.JWT({
-      email: process.env.GOOGLE_CLIENT_EMAIL,
-      key: privateKey,
-      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-    });
-  } catch (error) {
-    console.error("Error initializing Google auth:", error);
-    throw new Error(`Failed to initialize Google authentication: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
+// Use this approach which is common in Next.js apps
 export async function POST(request: Request) {
   try {
-    // Check for required environment variables
-    if (!process.env.SPREADSHEET_ID || !process.env.GOOGLE_CLIENT_EMAIL || !process.env.GOOGLE_PRIVATE_KEY) {
-      console.error("Missing required environment variables for Google Sheets API");
-      return NextResponse.json(
-        { success: false, error: 'Missing required configuration for Google Sheets API' },
-        { status: 500 }
-      );
-    }
+    console.log('Chatbot: Using authentication method from recommendations route...');
     
-    // Get authentication client with error handling
-    const auth = getGoogleAuth();
+    // Use the validated environment variables
+    const env = validateEnv();
+
+    // Use the same GoogleAuth pattern as recommendations
+    const auth = new google.auth.GoogleAuth({
+      credentials: {
+        client_email: env.GOOGLE_CLIENT_EMAIL,
+        private_key: env.GOOGLE_PRIVATE_KEY.split('\\n').join('\n'),
+        project_id: env.GOOGLE_PROJECT_ID
+      },
+      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+    });
+
+    // Get client and create sheets instance
+    const client = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: client as any });
     
-    console.log('Chatbot: Fetching spreadsheet data with JWT auth...');
+    // Fetch data
     const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.SPREADSHEET_ID,
+      spreadsheetId: env.SPREADSHEET_ID,
       range: 'Sheet1!A1:I10001',
-      auth,
     });
 
     const rows = response.data.values || [];
@@ -67,7 +43,7 @@ export async function POST(request: Request) {
       );
     }
     
-    // Convert to objects with headers - with TypeScript types added
+    // Convert to objects with headers
     const headers: string[] = rows[0] as string[];
     const data = rows.slice(1).map((row: any[]) => {
       return headers.reduce((obj: Record<string, any>, header: string, index: number) => {
