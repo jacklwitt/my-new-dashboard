@@ -1,3 +1,4 @@
+import { google } from 'googleapis';
 import { NextResponse } from 'next/server';
 // Fix the import based on your actual env.ts exports
 import * as envUtils from '@/utils/env';
@@ -5,28 +6,58 @@ import * as envUtils from '@/utils/env';
 // import { getEnv } from '@/utils/env';
 // import env from '@/utils/env';
 
-export async function POST(request: Request) {
+// Initialize the Sheets API client
+const sheets = google.sheets('v4');
+
+// Initialize Google credentials with error handling
+function getGoogleAuth() {
   try {
-    console.log('Chatbot: Attempting to fetch spreadsheet data with direct HTTP request...');
-
-    // Make direct HTTP request without JWT authentication
-    const response = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${process.env.SPREADSHEET_ID}/values/Sheet1!A1:I10001?key=${process.env.GOOGLE_API_KEY || process.env.OPENAI_API_KEY}`,
-      {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-        }
-      }
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`API request failed with status ${response.status}: ${errorText}`);
+    // Get the private key and handle different possible formats
+    let privateKey = process.env.GOOGLE_PRIVATE_KEY || '';
+    
+    // Check for double escaped newlines (\\n) and replace with actual newlines
+    if (privateKey.includes('\\n')) {
+      privateKey = privateKey.replace(/\\n/g, '\n');
     }
 
-    const sheetsData = await response.json();
-    const rows = sheetsData.values || [];
+    if (!privateKey) {
+      throw new Error("No Google private key provided");
+    }
+    
+    // Standard JWT client
+    return new google.auth.JWT({
+      email: process.env.GOOGLE_CLIENT_EMAIL,
+      key: privateKey,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+    });
+  } catch (error) {
+    console.error("Error initializing Google auth:", error);
+    throw new Error(`Failed to initialize Google authentication: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    // Check for required environment variables
+    if (!process.env.SPREADSHEET_ID || !process.env.GOOGLE_CLIENT_EMAIL || !process.env.GOOGLE_PRIVATE_KEY) {
+      console.error("Missing required environment variables for Google Sheets API");
+      return NextResponse.json(
+        { success: false, error: 'Missing required configuration for Google Sheets API' },
+        { status: 500 }
+      );
+    }
+    
+    // Get authentication client with error handling
+    const auth = getGoogleAuth();
+    
+    console.log('Chatbot: Fetching spreadsheet data with JWT auth...');
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.SPREADSHEET_ID,
+      range: 'Sheet1!A1:I10001',
+      auth,
+    });
+
+    const rows = response.data.values || [];
     
     if (rows.length <= 1) {
       console.warn("Spreadsheet returned no data or only headers");
