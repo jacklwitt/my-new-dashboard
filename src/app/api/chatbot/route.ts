@@ -4,27 +4,26 @@ import { NextResponse } from 'next/server';
 // Initialize the Sheets API client
 const sheets = google.sheets('v4');
 
-// Initialize Google credentials with error handling
+// Create auth with JSON credentials
 function getGoogleAuth() {
   try {
-    // Get the private key and handle different possible formats
-    let privateKey = process.env.GOOGLE_PRIVATE_KEY || '';
-    
-    // Check for double escaped newlines (\\n) and replace with actual newlines
-    if (privateKey.includes('\\n')) {
-      privateKey = privateKey.replace(/\\n/g, '\n');
-    }
+    // Create credentials object from environment variables
+    const credentials = {
+      client_email: process.env.GOOGLE_CLIENT_EMAIL,
+      private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+      // Add other required fields that might be in your service account JSON
+      type: "service_account",
+      project_id: process.env.GOOGLE_PROJECT_ID || ""
+    };
 
-    if (!privateKey) {
-      throw new Error("No Google private key provided");
-    }
-    
-    // Standard JWT client with additional options for Node.js 22 compatibility
-    return new google.auth.JWT({
-      email: process.env.GOOGLE_CLIENT_EMAIL,
-      key: privateKey,
-      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+    // Create OAuth2 client from JSON credentials
+    const auth = new google.auth.GoogleAuth({
+      credentials,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly']
     });
+
+    console.log("Created auth client with GoogleAuth instead of JWT");
+    return auth;
   } catch (error) {
     console.error("Error initializing Google auth:", error);
     throw new Error(`Failed to initialize Google authentication: ${error instanceof Error ? error.message : String(error)}`);
@@ -45,7 +44,7 @@ export async function POST(request: Request) {
     // Get authentication client with error handling
     const auth = getGoogleAuth();
     
-    console.log('Chatbot: Fetching spreadsheet data directly...');
+    console.log('Chatbot: Fetching spreadsheet data with GoogleAuth...');
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.SPREADSHEET_ID,
       range: 'Sheet1!A1:I10001',
