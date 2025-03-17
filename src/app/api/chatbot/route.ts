@@ -1,50 +1,25 @@
 import { google } from 'googleapis';
 import { NextResponse } from 'next/server';
+// Fix the import based on your actual env.ts exports
+import * as envUtils from '@/utils/env';
+// Alternative options:
+// import { getEnv } from '@/utils/env';
+// import env from '@/utils/env';
 
 // Initialize the Sheets API client
 const sheets = google.sheets('v4');
 
-// Create auth with JSON credentials
-function getGoogleAuth() {
-  try {
-    // Create credentials object from environment variables
-    const credentials = {
-      client_email: process.env.GOOGLE_CLIENT_EMAIL,
-      private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-      // Add other required fields that might be in your service account JSON
-      type: "service_account",
-      project_id: process.env.GOOGLE_PROJECT_ID || ""
-    };
-
-    // Create OAuth2 client from JSON credentials
-    const auth = new google.auth.GoogleAuth({
-      credentials,
-      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly']
-    });
-
-    console.log("Created auth client with GoogleAuth instead of JWT");
-    return auth;
-  } catch (error) {
-    console.error("Error initializing Google auth:", error);
-    throw new Error(`Failed to initialize Google authentication: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
 export async function POST(request: Request) {
   try {
-    // Check for required environment variables
-    if (!process.env.SPREADSHEET_ID || !process.env.GOOGLE_CLIENT_EMAIL || !process.env.GOOGLE_PRIVATE_KEY) {
-      console.error("Missing required environment variables for Google Sheets API");
-      return NextResponse.json(
-        { success: false, error: 'Missing required configuration for Google Sheets API' },
-        { status: 500 }
-      );
-    }
-    
-    // Get authentication client with error handling
-    const auth = getGoogleAuth();
-    
-    console.log('Chatbot: Fetching spreadsheet data with GoogleAuth...');
+    console.log('Chatbot: Attempting to fetch spreadsheet data with env utility...');
+
+    // Set up authentication
+    const auth = new google.auth.JWT({
+      email: process.env.GOOGLE_CLIENT_EMAIL,
+      key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+    });
+
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.SPREADSHEET_ID,
       range: 'Sheet1!A1:I10001',
