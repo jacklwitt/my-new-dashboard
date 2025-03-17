@@ -1,5 +1,6 @@
 import { google } from 'googleapis';
 import { NextResponse } from 'next/server';
+import { getEnv } from '@/utils/env';
 
 // Initialize the Sheets API client
 const sheets = google.sheets('v4');
@@ -21,8 +22,8 @@ function getGoogleAuth() {
     
     // Standard JWT client with additional options for Node.js 22 compatibility
     return new google.auth.JWT({
-      email: process.env.GOOGLE_CLIENT_EMAIL,
-      key: privateKey,
+      email: getEnv('GOOGLE_CLIENT_EMAIL'),
+      key: getEnv('GOOGLE_PRIVATE_KEY'),
       scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
     });
   } catch (error) {
@@ -49,7 +50,7 @@ export async function POST(request: Request) {
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.SPREADSHEET_ID,
       range: 'Sheet1!A1:I10001',
-      auth,
+      key: process.env.GOOGLE_API_KEY,
     });
 
     const rows = response.data.values || [];
