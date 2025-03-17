@@ -49,7 +49,7 @@ export async function POST(request: Request) {
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.SPREADSHEET_ID,
       range: 'Sheet1!A1:I10001',
-      key: process.env.GOOGLE_API_KEY,
+      auth,
     });
 
     const rows = response.data.values || [];
