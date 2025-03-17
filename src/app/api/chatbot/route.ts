@@ -1,4 +1,3 @@
-import { google } from 'googleapis';
 import { NextResponse } from 'next/server';
 // Fix the import based on your actual env.ts exports
 import * as envUtils from '@/utils/env';
@@ -6,27 +5,28 @@ import * as envUtils from '@/utils/env';
 // import { getEnv } from '@/utils/env';
 // import env from '@/utils/env';
 
-// Initialize the Sheets API client
-const sheets = google.sheets('v4');
-
 export async function POST(request: Request) {
   try {
-    console.log('Chatbot: Attempting to fetch spreadsheet data with env utility...');
+    console.log('Chatbot: Attempting to fetch spreadsheet data with direct HTTP request...');
 
-    // Set up authentication
-    const auth = new google.auth.JWT({
-      email: process.env.GOOGLE_CLIENT_EMAIL,
-      key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-    });
+    // Make direct HTTP request without JWT authentication
+    const response = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${process.env.SPREADSHEET_ID}/values/Sheet1!A1:I10001?key=${process.env.GOOGLE_API_KEY || process.env.OPENAI_API_KEY}`,
+      {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+        }
+      }
+    );
 
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.SPREADSHEET_ID,
-      range: 'Sheet1!A1:I10001',
-      auth,
-    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`API request failed with status ${response.status}: ${errorText}`);
+    }
 
-    const rows = response.data.values || [];
+    const sheetsData = await response.json();
+    const rows = sheetsData.values || [];
     
     if (rows.length <= 1) {
       console.warn("Spreadsheet returned no data or only headers");
@@ -36,13 +36,13 @@ export async function POST(request: Request) {
       );
     }
     
-    // Convert to objects with headers
-    const headers = rows[0];
-    const data = rows.slice(1).map(row => {
-      return headers.reduce((obj, header, index) => {
+    // Convert to objects with headers - with TypeScript types added
+    const headers: string[] = rows[0] as string[];
+    const data = rows.slice(1).map((row: any[]) => {
+      return headers.reduce((obj: Record<string, any>, header: string, index: number) => {
         obj[header] = row[index];
         return obj;
-      }, {});
+      }, {} as Record<string, any>);
     });
 
     return NextResponse.json({ success: true, data });
