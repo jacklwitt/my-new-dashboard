@@ -92,3 +92,4 @@ node_modules/
 credentials.json
 *-service-account.json
 *-e2f7f2b98e23.json
+.env*.local
